@@ -12,7 +12,7 @@ import {
   type Resource,
   type ResourceCount,
 } from '@hexfront/engine';
-import type { LobbyPlayer, RoomSettings, TradeOfferView } from '@hexfront/protocol';
+import type { LobbyPlayer, OfferView, OfferSnapshot, RoomSettings } from '@hexfront/protocol';
 import { initTooltips } from './tips.js';
 import { describeEvent, playerName } from './format.js';
 import {
@@ -64,9 +64,10 @@ export interface UiCallbacks {
   onDiscard(resources: Partial<ResourceCount>): void;
   onBuild(kind: BuildMode, target: string): void;
   onOffer(to: number, give: Partial<ResourceCount>, get: Partial<ResourceCount>): void;
-  onOfferAccept(): void;
-  onOfferReject(): void;
-  onOfferCancel(): void;
+  /** 接受/拒绝/撤回一律带报价 ID：旧页面上的按钮不会误操作新报价 */
+  onOfferAccept(offerId: string): void;
+  onOfferReject(offerId: string): void;
+  onOfferCancel(offerId: string): void;
   /** 掷 7 结算：把强盗挪到某地块，并从指定玩家手里随机抽 1 张（不传则不抽） */
   onMoveRobber(tile: string, stealFrom?: number): void;
   /** 改房间设置（开局前有效，服务端回推权威值） */
@@ -143,7 +144,10 @@ export class Ui {
   private givePick: Pick = emptyPick();
   private getPick: Pick = emptyPick();
   /** 当前挂在桌面上的报价（服务端广播，人人可见） */
-  private offer: TradeOfferView | null = null;
+  /** 完整报价列表（阶段 C 协议适配；阶段 D 会替换成列表 UI） */
+  private offers: OfferView[] = [];
+  /** 当前展示的那一条，按钮始终按它的 id 提交 */
+  private offer: OfferView | null = null;
   /** 入场动画只放一次：后续每次 STATE 重绘都再播一遍的话，棋盘会一直闪 */
   private animated = { board: false, hand: false };
 
@@ -547,9 +551,16 @@ export class Ui {
 
   // -------------------------------------------------------------- 交易
 
-  /** 服务端推来的报价变化（别人的、我自己的、或已被清空） */
-  setOffer(offer: TradeOfferView | null): void {
-    this.offer = offer;
+  /**
+   * 服务端推来的报价快照（多条并存）。
+   * 阶段 C 只做协议适配：优先显示指向自己的第一条，并在横幅上标出总数；
+   * 完整的列表/详情抽屉属于阶段 D。
+   */
+  setOffers(snapshot: OfferSnapshot, viewer: number): void {
+    this.offers = snapshot.offers.slice();
+    const relevant = this.offers.filter((o) => o.to === viewer || o.from === viewer);
+    const incoming = relevant.filter((o) => o.to === viewer);
+    this.offer = incoming[0] ?? relevant[0] ?? this.offers[0] ?? null;
     if (this.view) {
       this.paintTrade(this.view);
       this.paintOfferBar(this.view);
@@ -702,20 +713,22 @@ export class Ui {
         ? '<button id="offer-cancel">撤回</button>'
         : '';
 
+    const more = this.offers.length > 1 ? ` · 共 ${this.offers.length} 条待处理` : '';
     this.offerBar.innerHTML = `
-      <span class="ob-text"><b>${escapeHtml(playerName(view, offer.from))}</b> 给 <b>${desc(offer.give)}</b>，要 <b>${desc(offer.get)}</b> · 对 ${escapeHtml(playerName(view, offer.to))}</span>
+      <span class="ob-text"><b>${escapeHtml(playerName(view, offer.from))}</b> 给 <b>${desc(offer.give)}</b>，要 <b>${desc(offer.get)}</b> · 对 ${escapeHtml(playerName(view, offer.to))}${more}</span>
       <span class="ob-actions">${actions}</span>
     `;
 
+    // 每个按钮都钉死当前展示报价的 ID：报价被替换/过期后，旧按钮不会指向新报价
     this.offerBar
       .querySelector<HTMLButtonElement>('#offer-accept')
-      ?.addEventListener('click', () => this.cb.onOfferAccept());
+      ?.addEventListener('click', () => this.cb.onOfferAccept(offer.id));
     this.offerBar
       .querySelector<HTMLButtonElement>('#offer-reject')
-      ?.addEventListener('click', () => this.cb.onOfferReject());
+      ?.addEventListener('click', () => this.cb.onOfferReject(offer.id));
     this.offerBar
       .querySelector<HTMLButtonElement>('#offer-cancel')
-      ?.addEventListener('click', () => this.cb.onOfferCancel());
+      ?.addEventListener('click', () => this.cb.onOfferCancel(offer.id));
   }
 
   /** 只重画棋盘与摆位条，不碰手牌/骰子，避免点一下闪一下 */

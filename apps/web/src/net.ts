@@ -102,16 +102,17 @@ export class GameClient {
     this.send({ t: 'OFFER', to, give, get });
   }
 
-  acceptOffer(): void {
-    this.send({ t: 'OFFER_ACCEPT' });
+  /** 接受/拒绝/撤回一律携带报价 ID；rid 可用于把服务端的拒绝原因关联回这次点击 */
+  acceptOffer(offerId: string, rid?: string): void {
+    this.send({ t: 'OFFER_ACCEPT', offerId, ...(rid ? { rid } : {}) });
   }
 
-  rejectOffer(): void {
-    this.send({ t: 'OFFER_REJECT' });
+  rejectOffer(offerId: string, rid?: string): void {
+    this.send({ t: 'OFFER_REJECT', offerId, ...(rid ? { rid } : {}) });
   }
 
-  cancelOffer(): void {
-    this.send({ t: 'OFFER_CANCEL' });
+  cancelOffer(offerId: string, rid?: string): void {
+    this.send({ t: 'OFFER_CANCEL', offerId, ...(rid ? { rid } : {}) });
   }
 
   close(): void {

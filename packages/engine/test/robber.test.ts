@@ -103,7 +103,7 @@ describe('掷 7 → 移动强盗 → 抽牌', () => {
     if (!end.ok) expect(end.reason).toBe('ROBBER_PENDING');
   });
 
-  it('弃牌清空后，除 MOVE_ROBBER 外一律被锁（含骑士牌，防止重复移强盗）', () => {
+  it('指南 8.2：弃牌清空后恢复建造/兑换/交易，发展卡与结束回合仍被锁', () => {
     const { board, state } = playPhase();
     let after = rollSeven(board, setHands(state, [{ wood: 9 }]));
     const d = applyCommand(board, after, { type: 'DISCARD', seat: 0, resources: { wood: 5 } });
@@ -112,16 +112,35 @@ describe('掷 7 → 移动强盗 → 抽牌', () => {
     expect(Object.keys(after.pendingDiscards)).toHaveLength(0);
     expect(after.pendingRobber).toBe(true);
 
+    // 服务端同样要拒绝：发展卡（含骑士，防重复移强盗）与结束回合
     const blocked: Command[] = [
       { type: 'END_TURN', seat: 0 },
-      { type: 'BUILD_ROAD', seat: 0, edge: board.geo.edgeKeys[0]! },
-      { type: 'TRADE_BANK', seat: 0, give: 'wood', get: 'brick' },
+      { type: 'BUY_DEV_CARD', seat: 0 },
       { type: 'PLAY_KNIGHT', seat: 0, tile: '0,0' },
+      { type: 'PLAY_MONOPOLY', seat: 0, resource: 'wood' },
+      { type: 'PLAY_PLENTY', seat: 0, resources: ['wood', 'wood'] },
+      { type: 'PLAY_ROAD_BUILDING', seat: 0, edges: [board.geo.edgeKeys[0]!] },
     ];
     for (const cmd of blocked) {
       const r = applyCommand(board, after, cmd);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toBe('ROBBER_PENDING');
+    }
+
+    // 恢复的命令不再被强盗锁拦住：银行兑换此时应当真正成功（弃 5 后剩 4 木，够 4:1）
+    const bank = applyCommand(board, after, { type: 'TRADE_BANK', seat: 0, give: 'wood', get: 'brick' });
+    expect(bank.ok).toBe(true);
+    if (bank.ok) expect(bank.state.players[0]!.resources.brick).toBeGreaterThan(after.players[0]!.resources.brick);
+
+    // 建造 / 借港 / 玩家交易即使因资源或位置被拒，也不能是 ROBBER_PENDING
+    const released: Command[] = [
+      { type: 'BUILD_ROAD', seat: 0, edge: board.geo.edgeKeys[0]! },
+      { type: 'PORT_TRANSFER', seat: 0, beneficiary: 1, give: 'wood', get: 'brick' },
+      { type: 'TRADE_PLAYER', seat: 0, withPlayer: 1, give: { wood: 1 }, get: {} },
+    ];
+    for (const cmd of released) {
+      const r = applyCommand(board, after, cmd);
+      if (!r.ok) expect(r.reason).not.toBe('ROBBER_PENDING');
     }
   });
 

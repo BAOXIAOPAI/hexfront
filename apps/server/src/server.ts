@@ -181,6 +181,14 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
   const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
   const sessions = new Map<WebSocket, Session>();
 
+  // 过期报价的清理广播：不依赖客户端恰好发一条消息，闲置房间也能同步「已过期」。
+  // 成交判定不依赖这个定时器（acceptOffer 每次都会用服务端时钟复查 expiresAt）。
+  const purgeTimer = setInterval(() => {
+    for (const room of registry.list()) room.purgeExpired();
+  }, 1000);
+  purgeTimer.unref?.();
+  httpServer.once('close', () => clearInterval(purgeTimer));
+
   wss.on('connection', (ws: WebSocket) => {
     // 每条连接独立的存活标记，心跳失败就断，避免半开连接占着座位
     let alive = true;
@@ -188,11 +196,25 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
       alive = true;
     });
 
+    // 传输层滥发限制：与业务冷却分开，避免错误请求绕过负载保护（指南 7.2）
+    let windowStart = Date.now();
+    let windowCount = 0;
+
     const reply = (msg: ServerMessage): void => {
       if (ws.readyState === ws.OPEN) ws.send(encode(msg));
     };
 
     ws.on('message', (raw) => {
+      const arrivedAt = Date.now();
+      if (arrivedAt - windowStart > 1000) {
+        windowStart = arrivedAt;
+        windowCount = 0;
+      }
+      if (++windowCount > 60) {
+        reply({ t: 'REJECT', reason: 'RATE_LIMITED' });
+        return;
+      }
+
       const msg = decodeClientMessage(raw.toString());
       if (!msg) {
         reply({ t: 'JOIN_FAILED', reason: 'BAD_MESSAGE' });
@@ -205,6 +227,11 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
           return;
 
         case 'JOIN': {
+          // 协议不兼容升级必须可识别：只递增常量而不校验等于没升级（指南 10.3）
+          if (msg.v !== PROTOCOL_VERSION) {
+            reply({ t: 'JOIN_FAILED', reason: 'PROTOCOL_MISMATCH' });
+            return;
+          }
           const roomId = normalizeRoomId(msg.roomId) ?? 'main';
           const room = registry.getOrCreate(roomId);
           if (!room) {
@@ -224,7 +251,9 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
             capacity: room.capacity,
             players: room.lobbyPlayers(),
             view: result.view,
-            offer: room.currentOffer,
+            // 恢复快照：只带未过期报价、列表版本、服务端时间与本人冷却
+            snapshot: room.snapshot(),
+            stateSeq: room.version,
           });
           // 房间设置是权威值：新入座/重连/满员自动开局都要同步一次
           room.broadcastSettings();
@@ -247,41 +276,41 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
         case 'OFFER': {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: 'REJECT', reason: 'NOT_SEATED' });
+            reply({ t: 'REJECT', reason: 'NOT_SEATED', ...(msg.rid ? { rid: msg.rid } : {}) });
             return;
           }
-          session.room.makeOffer(session.seat, msg.to, msg.give, msg.get);
+          session.room.makeOffer(session.seat, msg.to, msg.give, msg.get, msg.rid);
           return;
         }
 
         case 'OFFER_ACCEPT': {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: 'REJECT', reason: 'NOT_SEATED' });
+            reply({ t: 'REJECT', reason: 'NOT_SEATED', ...(msg.rid ? { rid: msg.rid } : {}) });
             return;
           }
-          const outcome = session.room.acceptOffer(session.seat);
-          if (outcome.ok) session.room.sync(outcome.events);
+          const outcome = session.room.acceptOffer(session.seat, msg.offerId, msg.rid);
+          if (outcome.ok) session.room.sync(outcome.events ?? []);
           return;
         }
 
         case 'OFFER_REJECT': {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: 'REJECT', reason: 'NOT_SEATED' });
+            reply({ t: 'REJECT', reason: 'NOT_SEATED', ...(msg.rid ? { rid: msg.rid } : {}) });
             return;
           }
-          session.room.rejectOffer(session.seat);
+          session.room.rejectOffer(session.seat, msg.offerId, msg.rid);
           return;
         }
 
         case 'OFFER_CANCEL': {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: 'REJECT', reason: 'NOT_SEATED' });
+            reply({ t: 'REJECT', reason: 'NOT_SEATED', ...(msg.rid ? { rid: msg.rid } : {}) });
             return;
           }
-          session.room.cancelOffer(session.seat);
+          session.room.cancelOffer(session.seat, msg.offerId, msg.rid);
           return;
         }
 
@@ -306,7 +335,7 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
             reply({ t: 'REJECT', reason: 'NOT_SEATED' });
             return;
           }
-          const outcome = session.room.command(session.seat, msg.cmd);
+          const outcome = session.room.command(session.seat, msg.cmd, msg.rid);
           if (outcome.ok) session.room.sync(outcome.events);
           return;
         }

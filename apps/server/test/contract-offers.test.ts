@@ -1,133 +1,333 @@
 /**
- * 重构指南阶段 A：报价与行动权限的规则契约（docs/10-refactor-guide.md 第 1、7、8 节）。
+ * 重构指南阶段 C：报价与行动权限的规则契约（docs/10-refactor-guide.md 第 1 / 7 / 8 / 13.2 节）。
  *
- * 现状缺陷用「能通过的断言」固化成可执行证据；目标行为用 it.todo 列出，
- * 阶段 C 实现后逐条改成真实断言。数值契约的单一来源在
- * packages/protocol/test/contract-protocol.test.ts 的 CONTRACT。
- *
- * 尤其重要：第一个用例复现指南 2. 表格 P0「新报价直接覆盖 + 接受消息无报价 ID」
- * 造成的竞态 —— 旧页面上的「接受」会成交一条用户没看过的报价。
+ * 阶段 A 这里放的是「现状缺陷证据 + 目标 todo」；阶段 C 已把 todo 全部转成真实断言。
+ * 时钟由 fixture 注入，测试不真实等待 10 秒，也不依赖清理定时器。
  */
 
 import { describe, expect, it } from 'vitest';
-import { Room } from '../src/room.js';
+import { OFFER_SEND_COOLDOWN_MS, OFFER_TTL_MS } from '../src/protocol.js';
+import { Room, type OfferOutcome } from '../src/room.js';
 import { FakeSocket, driveSetup } from './helpers.js';
 
 // 验收需要可复现的骰子；真实环境默认关闭（见 room.command 的剥离逻辑）
 process.env.HEXFONT_FAKE_DICE = '1';
 
-/** 两人房，已摆位进入 play；0 号 3 木，1 号 2 麦 */
-function ready(): { room: Room; a: FakeSocket; b: FakeSocket } {
-  const room = new Room('contract', { capacity: 2 });
-  const a = new FakeSocket('a');
-  const b = new FakeSocket('b');
-  expect(room.join('甲', a).ok).toBe(true);
-  expect(room.join('乙', b).ok).toBe(true);
-  driveSetup(room);
-  room.game!.players[0]!.resources.wood = 3;
-  room.game!.players[1]!.resources.wheat = 2;
-  return { room, a, b };
-}
+const NAMES = ['甲', '乙', '丙', '丁'];
 
-/** 三人房，已摆位进入 play；用来验证「多条并存」与「非当前玩家权限」 */
-function threeSeat(): Room {
-  const room = new Room('contract3', { capacity: 3 });
-  for (const name of ['甲', '乙', '丙']) {
-    expect(room.join(name, new FakeSocket(name)).ok).toBe(true);
+/** 满员自动开局 + 走完摆位；每人手牌固定，时钟可控 */
+function fixture(capacity = 3) {
+  let clock = 1_000_000;
+  const room = new Room('contract', { capacity, now: () => clock });
+  const sockets: FakeSocket[] = [];
+  for (const name of NAMES.slice(0, capacity)) {
+    const s = new FakeSocket(name);
+    expect(room.join(name, s).ok).toBe(true);
+    sockets.push(s);
   }
   driveSetup(room);
-  return room;
+  for (const p of room.game!.players) {
+    p.resources = { wood: 3, brick: 2, sheep: 2, wheat: 2, ore: 2 };
+  }
+  return {
+    room,
+    sockets,
+    now: () => clock,
+    advance: (ms: number) => { clock += ms; },
+  };
 }
 
-describe('P0 竞态：旧页面上的接受会成交被替换后的新报价', () => {
-  it('重发覆盖后，收件人点「接受」成交的是自己没看过的新报价', () => {
-    const { room, a, b } = ready();
+function okId(outcome: OfferOutcome): string {
+  expect(outcome.ok).toBe(true);
+  if (!outcome.ok) throw new Error(`报价操作失败：${outcome.reason}`);
+  return outcome.offerId;
+}
+function failReason(outcome: OfferOutcome): string {
+  expect(outcome.ok).toBe(false);
+  return outcome.ok ? '' : outcome.reason;
+}
+function offersOf(room: Room) {
+  return room.offerSnapshot.offers;
+}
+function offerMessages(s: FakeSocket) {
+  return s.sent.filter((m) => m.t === 'OFFERS');
+}
 
-    // 报价 1：0 号给 1 木、要 1 麦。收件人的旧页面停在这里。
-    expect(room.makeOffer(0, 1, { wood: 1 }, { wheat: 1 })).toBe(true);
-    const stale = b.sent.filter((m) => m.t === 'OFFER').at(-1);
-    expect(stale).toBeDefined();
+// ---------------------------------------------------------------------------
+// 7.1 权限与容量
+// ---------------------------------------------------------------------------
+describe('第 7.1 节：权限、容量与视角', () => {
+  it('A/B/C 三条报价并存不互相覆盖，ID 唯一且按创建时间排序', () => {
+    const { room } = fixture();
+    const a = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    const b = okId(room.makeOffer(1, 0, { brick: 1 }, {}));
+    const c = okId(room.makeOffer(2, 0, { sheep: 1 }, {}));
+    const list = offersOf(room);
+    expect(list).toHaveLength(3);
+    expect(new Set(list.map((o) => o.id)).size).toBe(3);
+    expect(list.map((o) => o.id)).toEqual([a, b, c]);
+    expect(list.map((o) => o.createdAt)).toEqual([...list.map((o) => o.createdAt)].sort((x, y) => x - y));
+    expect(list.every((o) => o.expiresAt - o.createdAt === OFFER_TTL_MS)).toBe(true);
+  });
 
-    // 0 号重发，把报价改成给 3 木、要 2 麦（房间无冷却、无 ID）
-    expect(room.makeOffer(0, 1, { wood: 3 }, { wheat: 2 })).toBe(true);
-    expect(room.currentOffer).toEqual({ from: 0, to: 1, give: { wood: 3 }, get: { wheat: 2 } });
+  it('每人最多一条有效报价：重发原子替换本人旧报价，不动别人的', () => {
+    const { room, advance } = fixture();
+    const first = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    okId(room.makeOffer(1, 0, { brick: 1 }, {}));
+    advance(OFFER_SEND_COOLDOWN_MS);
+    const second = okId(room.makeOffer(0, 2, { wood: 2 }, {}));
 
-    // 收件人按旧页面点接受：消息里只有 t:'OFFER_ACCEPT'，服务端无法知道指的是哪一条
-    a.clear();
-    b.clear();
-    const outcome = room.acceptOffer(1);
-    expect(outcome.ok).toBe(true);
+    const list = offersOf(room);
+    expect(list).toHaveLength(2);
+    expect(list.some((o) => o.id === first)).toBe(false);
+    expect(list.some((o) => o.id === second)).toBe(true);
+    expect(list.find((o) => o.from === 1)).toBeDefined(); // 别人的报价还在
+    expect(failReason(room.acceptOffer(1, first))).toBe('OFFER_NOT_FOUND');
+  });
 
-    // 结果按新报价结算：3 木全被拿走（旧报价只会拿走 1 木、剩 2 木）
-    expect(room.game!.players[0]!.resources.wood).toBe(0);
-    expect(room.game!.players[0]!.resources.wheat).toBe(2);
-    expect(room.game!.players[1]!.resources.wood).toBe(3);
-    expect(room.game!.players[1]!.resources.wheat).toBe(0);
-    expect(room.currentOffer).toBeNull();
+  it('重发失败时保留旧报价：先校验新请求，成功后才替换', () => {
+    const { room, advance } = fixture();
+    const first = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    advance(OFFER_SEND_COOLDOWN_MS);
+    // 空换空是无效请求
+    expect(failReason(room.makeOffer(0, 1, {}, {}))).toBe('BAD_OFFER');
+    expect(offersOf(room).map((o) => o.id)).toEqual([first]);
+  });
+
+  it('权限：当前玩家可报价任意人；非当前玩家只能报价当前玩家', () => {
+    const { room } = fixture();
+    expect(room.game!.current).toBe(0);
+    // 两个非当前玩家之间禁止
+    expect(failReason(room.makeOffer(1, 2, { wood: 1 }, {}))).toBe('OFFER_FORBIDDEN');
+    // 当前玩家 → 任意人
+    expect(room.makeOffer(0, 2, { wood: 1 }, {}).ok).toBe(true);
+    // 非当前玩家 → 当前玩家
+    expect(room.makeOffer(1, 0, { brick: 1 }, {}).ok).toBe(true);
+  });
+
+  it('赠予与索取可提交，空换空不可提交，非在座目标被拒', () => {
+    const { room } = fixture();
+    expect(room.makeOffer(0, 1, { wood: 1 }, {}).ok).toBe(true);   // 赠予
+    expect(failReason(room.makeOffer(1, 0, {}, {}))).toBe('BAD_OFFER');
+    expect(failReason(room.makeOffer(2, 9, { wood: 1 }, {}))).toBe('BAD_OFFER');
   });
 });
 
-describe('第 7 节：报价生命周期的现状固化（缺陷证据，不是目标行为）', () => {
-  it('房间只保留一条报价：A/B/C 先后挂价，前两条被静默覆盖', () => {
-    const room = threeSeat();
-    expect(room.makeOffer(0, 1, { wood: 1 }, {})).toBe(true);
-    expect(room.makeOffer(1, 0, { brick: 1 }, {})).toBe(true);
-    expect(room.makeOffer(2, 0, { sheep: 1 }, {})).toBe(true);
-    expect(room.currentOffer).toEqual({ from: 2, to: 0, give: { sheep: 1 }, get: {} });
+// ---------------------------------------------------------------------------
+// 7.2 生命周期：时钟、冷却、过期、替换、清空
+// ---------------------------------------------------------------------------
+describe('第 7.2 节：服务端时钟、冷却与过期', () => {
+  it('3 秒内重复发送被拒；无效请求不更新业务冷却', () => {
+    const { room, advance } = fixture();
+    okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    expect(failReason(room.makeOffer(0, 1, { wood: 2 }, {}))).toBe('OFFER_COOLDOWN');
+    expect(offersOf(room)).toHaveLength(1);
+
+    // 无效请求不应把冷却顺延
+    room.makeOffer(0, 9, { wood: 1 }, {});
+    advance(OFFER_SEND_COOLDOWN_MS);
+    expect(room.makeOffer(0, 1, { wood: 2 }, {}).ok).toBe(true);
   });
 
-  it('没有 3 秒发送冷却：同一人连续两次挂价都立即成功', () => {
-    const { room } = ready();
-    expect(room.makeOffer(0, 1, { wood: 1 }, {})).toBe(true);
-    expect(room.makeOffer(0, 1, { wood: 2 }, {})).toBe(true);
+  it('刷新/重连不绕过冷却；撤回不退还冷却', () => {
+    const { room, sockets, advance } = fixture();
+    const id = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    room.cancelOffer(0, id);
+    expect(failReason(room.makeOffer(0, 1, { wood: 2 }, {}))).toBe('OFFER_COOLDOWN');
+
+    room.leave(0);
+    room.reconnect(0, new FakeSocket('甲-重连'));
+    expect(failReason(room.makeOffer(0, 1, { wood: 2 }, {}))).toBe('OFFER_COOLDOWN');
+    expect(sockets).toHaveLength(3);
+    advance(OFFER_SEND_COOLDOWN_MS);
+    expect(room.makeOffer(0, 1, { wood: 2 }, {}).ok).toBe(true);
   });
 
-  it('没有 10 秒期限：报价对象不含 id / createdAt / expiresAt，可无限期挂着', () => {
-    const { room } = ready();
-    expect(room.makeOffer(0, 1, { wood: 1 }, {})).toBe(true);
-    expect(Object.keys(room.currentOffer!).sort()).toEqual(['from', 'get', 'give', 'to']);
+  it('冷却后重发生成新 ID，旧 ID 不可接受，10 秒重新开始', () => {
+    const { room, advance, now } = fixture();
+    const first = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    advance(OFFER_SEND_COOLDOWN_MS);
+    const second = okId(room.makeOffer(0, 1, { wood: 2 }, {}));
+    const view = offersOf(room).find((o) => o.id === second)!;
+    expect(view.expiresAt - view.createdAt).toBe(OFFER_TTL_MS);
+    expect(view.createdAt).toBe(now());
+    expect(failReason(room.acceptOffer(1, first))).toBe('OFFER_NOT_FOUND');
+    expect(room.acceptOffer(1, second).ok).toBe(true);
   });
 
-  it('非当前玩家也能向另一个非当前玩家报价（与 7.1 权限不符）', () => {
-    const room = threeSeat();
-    // 摆位结束后当前玩家为 0；2 → 1 两侧都不是当前玩家
-    expect(room.game!.current).toBe(0);
-    expect(room.makeOffer(2, 1, { sheep: 1 }, {})).toBe(true);
-    expect(room.currentOffer?.to).toBe(1);
+  it('到期边界：恰好 10 秒即过期，9.999 秒仍可成交', () => {
+    const { room, advance } = fixture();
+    const a = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    advance(OFFER_TTL_MS - 1);
+    expect(room.acceptOffer(1, a).ok).toBe(true);
+
+    const b = okId(room.makeOffer(1, 0, { brick: 1 }, {}));
+    advance(OFFER_TTL_MS);
+    expect(failReason(room.acceptOffer(0, b))).toBe('OFFER_EXPIRED');
+    expect(offersOf(room)).toHaveLength(0);
   });
 
-  it('掷 7 不清空报价：房间只在 END_TURN 分支清理', () => {
-    const { room } = ready();
-    expect(room.makeOffer(0, 1, { wood: 1 }, {})).toBe(true);
-    const rolled = room.command(0, { type: 'ROLL_DICE', seat: 0, dice: [1, 6] });
-    expect(rolled.ok).toBe(true);
-    expect(room.game!.dice).toEqual([1, 6]);
-    expect(room.currentOffer).not.toBeNull();
+  it('清理定时器尚未执行也不能误成交（acceptOffer 用服务端时钟复查）', () => {
+    const { room, advance } = fixture();
+    const id = okId(room.makeOffer(0, 1, { wood: 99 }, {}));
+    advance(OFFER_TTL_MS + 5_000);
+    // 不调用 purgeExpired，直接接受
+    expect(failReason(room.acceptOffer(1, id))).toBe('OFFER_EXPIRED');
+    expect(room.game!.players[0]!.resources.wood).toBe(3); // 没有发生任何资源变化
   });
 
-  it('现状回归：END_TURN 确实会清空报价（阶段 C 需保留）', () => {
-    const { room } = ready();
-    expect(room.makeOffer(0, 1, { wood: 1 }, {})).toBe(true);
+  it('purgeExpired 会广播过期并带上列表版本', () => {
+    const { room, sockets, advance } = fixture();
+    okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    const before = room.offerSnapshot.version;
+    advance(OFFER_TTL_MS);
+    sockets.forEach((s) => s.clear());
+    room.purgeExpired();
+    expect(offerMessages(sockets[0]!)[0]).toMatchObject({ t: 'OFFERS', reason: 'EXPIRED' });
+    expect(room.offerSnapshot.version).toBeGreaterThan(before);
+  });
+
+  it('资源不足保留报价至到期并提示，不默默改变交易数量', () => {
+    const { room } = fixture();
+    const id = okId(room.makeOffer(0, 1, { wood: 99 }, { wheat: 1 }));
+    expect(failReason(room.acceptOffer(1, id))).toBe('INSUFFICIENT_RESOURCES');
+    expect(offersOf(room).find((o) => o.id === id)).toBeDefined();
+    expect(offersOf(room).find((o) => o.id === id)!.give).toEqual({ wood: 99 });
+    // 补足资源后同一条报价仍可成交
+    room.game!.players[0]!.resources.wood = 99;
+    expect(room.acceptOffer(1, id).ok).toBe(true);
+  });
+
+  it('两条报价争用同一份资源：第二条不会扣成负数', () => {
+    const { room } = fixture();
+    const a = okId(room.makeOffer(0, 1, { wood: 3 }, { wheat: 1 }));
+    const b = okId(room.makeOffer(1, 0, { wheat: 1 }, { wood: 3 }));
+    expect(room.acceptOffer(1, a).ok).toBe(true);
+    expect(room.game!.players[0]!.resources.wood).toBe(0);
+    expect(failReason(room.acceptOffer(0, b))).toBe('INSUFFICIENT_RESOURCES');
+    for (const p of room.game!.players) {
+      for (const n of Object.values(p.resources)) expect(n).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('接受成功后只删除对应报价，其余在各自期限内保留', () => {
+    const { room } = fixture();
+    const a = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    const b = okId(room.makeOffer(1, 0, { brick: 1 }, {}));
+    expect(room.acceptOffer(1, a).ok).toBe(true);
+    expect(offersOf(room).map((o) => o.id)).toEqual([b]);
+  });
+
+  it('掷 7 清空全部报价并广播 ROLL_SEVEN；弃牌期间不能创建或接受', () => {
+    const { room, sockets } = fixture();
+    const a = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    okId(room.makeOffer(1, 0, { brick: 1 }, {}));
+    sockets.forEach((s) => s.clear());
+    room.command(0, { type: 'ROLL_DICE', seat: 0, dice: [1, 6] });
+    expect(offersOf(room)).toHaveLength(0);
+    expect(offerMessages(sockets[0]!).some((m) => m.t === 'OFFERS' && m.reason === 'ROLL_SEVEN')).toBe(true);
+    expect(failReason(room.acceptOffer(1, a))).toBe('OFFER_NOT_FOUND');
+    expect(failReason(room.makeOffer(0, 1, { wood: 1 }, {}))).toBe('DISCARD_PENDING');
+    expect(Object.keys(room.game!.pendingDiscards).length).toBeGreaterThan(0);
+  });
+
+  it('有人尚未弃牌时接受已有报价也被拒；弃完后恢复交易', () => {
+    const { room } = fixture();
+    const id = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    // 模拟服务端已确认掷 7 进入弃牌锁（不通过命令，保住这条报价用于断言）
+    room.game!.pendingDiscards = { 0: 1 };
+    expect(failReason(room.acceptOffer(1, id))).toBe('DISCARD_PENDING');
+    expect(offersOf(room).find((o) => o.id === id)).toBeDefined();
+    room.game!.pendingDiscards = {};
+    expect(room.acceptOffer(1, id).ok).toBe(true);
+  });
+
+  it('回合结束与游戏结束清空全部报价', () => {
+    const { room } = fixture(2);
+    okId(room.makeOffer(0, 1, { wood: 1 }, {}));
     room.command(0, { type: 'ROLL_DICE', seat: 0, dice: [2, 3] });
     expect(room.command(0, { type: 'END_TURN', seat: 0 }).ok).toBe(true);
-    expect(room.currentOffer).toBeNull();
+    expect(offersOf(room)).toHaveLength(0);
+
+    room.game!.phase = 'ended';
+    expect(failReason(room.makeOffer(1, 0, { wood: 1 }, {}))).toBe('GAME_ENDED');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 阶段 C 待实现：对应指南 7.1 / 7.2 / 7.3 / 13.2 的验收条目
+// 7.3 并发与消息契约
 // ---------------------------------------------------------------------------
+describe('第 7.3 节：按 ID 处理、串行裁决与恢复快照', () => {
+  it('P0 竞态回归：旧页面按旧 ID 点接受，绝不会成交被替换后的新报价', () => {
+    const { room, advance } = fixture(2);
+    const staleId = okId(room.makeOffer(0, 1, { wood: 1 }, { wheat: 1 }));
+    advance(OFFER_SEND_COOLDOWN_MS);
+    const freshId = okId(room.makeOffer(0, 1, { wood: 3 }, { wheat: 2 }));
+    expect(freshId).not.toBe(staleId);
 
-describe('第 7 节目标契约（阶段 C）', () => {
-  it.todo('A/B/C 三条报价并存不互相覆盖；每人最多一条有效报价，当前玩家也不能同时挂多条');
-  it.todo('服务端分配唯一 ID / createdAt / expiresAt；到期即不可成交，即使清理定时器尚未执行');
-  it.todo('每位玩家成功发出后 3 秒冷却；刷新/重连不绕过，撤回不退还冷却，无效请求不更新业务冷却');
-  it.todo('接受/拒绝/撤回都带 offerId；过期或已替换的 ID 返回明确原因，绝不操作另一条报价');
-  it.todo('重发先校验新请求，失败保留旧报价，成功后原子替换并重新计时；撤回需再次主动点击');
-  it.todo('接受成功后只删对应报价，其余在各自期限内保留并在成交时重新校验资源');
-  it.todo('资源不足保留报价至到期并提示，不默默改变交易数量，不出现负数或重复扣减');
-  it.todo('权限：当前玩家可报价任意人；非当前玩家只能报价当前玩家；赠予/索取合法，空换空拒绝');
-  it.todo('掷 7 / 回合结束 / 游戏结束清空全部活跃报价；重连只恢复未过期报价');
-  it.todo('接受与掷 7、回合结束、本人重发交错到达时按服务端串行顺序裁决，不依赖客户端禁用按钮');
-  it.todo('WELCOME 与恢复快照包含报价列表、列表版本、服务端时间与下次可发时间');
+    const result = room.acceptOffer(1, staleId); // 旧页面携带的 ID
+    expect(result.ok).toBe(false);
+    expect(room.game!.players[0]!.resources.wood).toBe(3); // 3 木一张没少
+    expect(offersOf(room).map((o) => o.id)).toEqual([freshId]);
+    expect(room.acceptOffer(1, freshId).ok).toBe(true);
+    expect(room.game!.players[0]!.resources.wood).toBe(0);
+  });
+
+  it('接受 / 拒绝 / 撤回都校验 ID、收件人与发起人', () => {
+    const { room } = fixture();
+    const a = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    expect(failReason(room.acceptOffer(0, a))).toBe('OFFER_NOT_FOR_YOU');
+    expect(failReason(room.cancelOffer(1, a))).toBe('OFFER_FORBIDDEN');
+    expect(failReason(room.rejectOffer(2, a))).toBe('OFFER_NOT_FOR_YOU');
+    expect(failReason(room.acceptOffer(1, 'o999'))).toBe('OFFER_NOT_FOUND');
+    expect(room.rejectOffer(1, a).ok).toBe(true);
+    expect(offersOf(room)).toHaveLength(0);
+  });
+
+  it('串行裁决：报价先被接受再掷 7，不会出现重复成交', () => {
+    const { room } = fixture(2);
+    const id = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    expect(room.acceptOffer(1, id).ok).toBe(true);
+    const wood = room.game!.players[1]!.resources.wood;
+    room.command(0, { type: 'ROLL_DICE', seat: 0, dice: [1, 6] });
+    expect(failReason(room.acceptOffer(1, id))).toBe('OFFER_NOT_FOUND');
+    expect(room.game!.players[1]!.resources.wood).toBe(wood);
+  });
+
+  it('快照带列表版本、服务端时间、本人下次可发时间；重连只恢复未过期报价', () => {
+    const { room, now, advance } = fixture();
+    const id = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    const snap = room.offerSnapshot;
+    expect(snap.serverTime).toBe(now());
+    expect(snap.nextSendAt['0']).toBe(now() + OFFER_SEND_COOLDOWN_MS);
+    expect(snap.offers.map((o) => o.id)).toEqual([id]);
+    const v0 = snap.version;
+
+    advance(OFFER_TTL_MS);
+    const later = room.offerSnapshot;
+    expect(later.offers).toHaveLength(0);
+    expect(later.version).toBeGreaterThan(v0);
+    expect(later.nextSendAt['0']).toBeUndefined(); // 冷却也早已过去
+  });
+
+  it('广播带终止原因与对应 ID；rid 在拒绝原因里回显', () => {
+    const { room, sockets } = fixture(2);
+    sockets.forEach((s) => s.clear());
+    const id = okId(room.makeOffer(0, 1, { wood: 1 }, {}));
+    expect(offerMessages(sockets[0]!).at(-1)).toMatchObject({ t: 'OFFERS', reason: 'CREATED', offerId: id });
+
+    room.makeOffer(0, 1, { wood: 2 }, {}, 'my-click-1');
+    const rejected = sockets[0]!.rejects.at(-1);
+    expect(rejected).toMatchObject({ t: 'REJECT', reason: 'OFFER_COOLDOWN', rid: 'my-click-1' });
+  });
+
+  it('COMMAND 的 rid 也会在引擎拒绝里回显，便于关联这次点击', () => {
+    const { room, sockets } = fixture(2);
+    sockets[1]!.clear();
+    // 1 号位不是当前玩家，伪造 seat 也会被覆盖
+    room.command(1, { type: 'ROLL_DICE', seat: 0, dice: [1, 1] }, 'cmd-42');
+    expect(sockets[1]!.rejects.at(-1)).toMatchObject({
+      t: 'REJECT', reason: 'NOT_YOUR_TURN', rid: 'cmd-42',
+    });
+  });
 });

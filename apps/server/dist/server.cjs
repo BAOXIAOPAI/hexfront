@@ -4715,12 +4715,20 @@ var ROAD_AFFECTING = /* @__PURE__ */ new Set([
   "BUILD_CITY",
   "PLAY_ROAD_BUILDING"
 ]);
+var ROBBER_BLOCKED = /* @__PURE__ */ new Set([
+  "BUY_DEV_CARD",
+  "PLAY_KNIGHT",
+  "PLAY_MONOPOLY",
+  "PLAY_PLENTY",
+  "PLAY_ROAD_BUILDING",
+  "END_TURN"
+]);
 function applyCommand(board, state, cmd) {
   const discarding = Object.keys(state.pendingDiscards).length > 0;
   if (discarding && cmd.type !== "DISCARD") {
     return { ok: false, reason: "DISCARD_PENDING" };
   }
-  if (!discarding && state.pendingRobber && cmd.type !== "MOVE_ROBBER") {
+  if (!discarding && state.pendingRobber && ROBBER_BLOCKED.has(cmd.type)) {
     return { ok: false, reason: "ROBBER_PENDING" };
   }
   const result = dispatch(board, state, cmd);
@@ -4827,9 +4835,15 @@ function viewFor(board, state, viewer) {
 }
 
 // ../../packages/protocol/src/index.ts
+var PROTOCOL_VERSION = 2;
+var OFFER_TTL_MS = 1e4;
+var OFFER_SEND_COOLDOWN_MS = 3e3;
 var DEFAULT_SETTINGS = { setupGrant: true };
 function encode(msg) {
   return JSON.stringify(msg);
+}
+function optionalRid(raw) {
+  return typeof raw.rid === "string" && raw.rid.length > 0 && raw.rid.length <= 64 ? { rid: raw.rid } : {};
 }
 function decodeClientMessage(raw) {
   let parsed;
@@ -4839,42 +4853,55 @@ function decodeClientMessage(raw) {
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;
-  const t = parsed.t;
+  const obj = parsed;
+  const t = obj.t;
   if (t === "JOIN") {
-    const roomId = parsed.roomId;
-    const name = parsed.name;
+    const roomId = obj.roomId;
+    const name = obj.name;
+    const v = typeof obj.v === "number" ? obj.v : void 0;
     return {
       t: "JOIN",
       roomId: typeof roomId === "string" ? roomId : "main",
-      name: typeof name === "string" ? name : ""
+      name: typeof name === "string" ? name : "",
+      ...v === void 0 ? {} : { v }
     };
   }
   if (t === "SET_SETTINGS") {
-    const setupGrant = parsed.setupGrant;
+    const setupGrant = obj.setupGrant;
     if (typeof setupGrant !== "boolean") return null;
     return { t: "SET_SETTINGS", setupGrant };
   }
   if (t === "START") return { t: "START" };
   if (t === "COMMAND") {
-    const cmd = parsed.cmd;
+    const cmd = obj.cmd;
     if (typeof cmd !== "object" || cmd === null) return null;
     if (typeof cmd.type !== "string") return null;
-    return { t: "COMMAND", cmd };
+    return { t: "COMMAND", cmd, ...optionalRid(obj) };
   }
   if (t === "PING") {
-    const id = parsed.id;
+    const id = obj.id;
     return typeof id === "number" ? { t: "PING", id } : { t: "PING" };
   }
   if (t === "OFFER") {
-    const { to, give, get } = parsed;
+    const { to, give, get } = obj;
     if (typeof to !== "number" || typeof give !== "object" || give === null || typeof get !== "object" || get === null) {
       return null;
     }
-    return { t: "OFFER", to, give, get };
+    return {
+      t: "OFFER",
+      to,
+      give,
+      get,
+      ...optionalRid(obj)
+    };
   }
-  if (t === "OFFER_ACCEPT") return { t: "OFFER_ACCEPT" };
-  if (t === "OFFER_REJECT") return { t: "OFFER_REJECT" };
-  if (t === "OFFER_CANCEL") return { t: "OFFER_CANCEL" };
+  for (const kind of ["OFFER_ACCEPT", "OFFER_REJECT", "OFFER_CANCEL"]) {
+    if (t === kind) {
+      const offerId = obj.offerId;
+      if (typeof offerId !== "string" || offerId.length === 0 || offerId.length > 64) return null;
+      return { t: kind, offerId, ...optionalRid(obj) };
+    }
+  }
   return null;
 }
 
@@ -4907,8 +4934,15 @@ var Room = class {
   members = [];
   sockets = /* @__PURE__ */ new Map();
   seq = 0;
-  /** 桌面上挂着的报价；同一时间只允许一条，避免桌面变成拍卖行 */
-  offer = null;
+  /** 多条报价并存；每位玩家最多一条，按创建时间排序 */
+  offers = [];
+  offerCounter = 0;
+  offersVersion = 0;
+  /** 最近因过期被清理的报价 ID → 清理时刻；有限期保留，用于返回明确的过期原因 */
+  expiredIds = /* @__PURE__ */ new Map();
+  /** 座位 → 下次允许发送报价的服务端时间；重连不清除 */
+  cooldown = /* @__PURE__ */ new Map();
+  now;
   /** 房间级规则设置：只在开局前可改，开局后锁定到整局结束 */
   settings = { ...DEFAULT_SETTINGS };
   constructor(id, opts = {}) {
@@ -4916,6 +4950,7 @@ var Room = class {
     this.board = opts.board ?? buildBoard(MAP_4P);
     const cap = opts.capacity ?? 4;
     this.capacity = Math.max(2, Math.min(PLAYER_COLORS.length, Math.floor(cap)));
+    this.now = opts.now ?? (() => Date.now());
   }
   // -------------------------------------------------------------------------
   // 只读
@@ -5032,62 +5067,186 @@ var Room = class {
    * **座位以连接为准**：客户端 JSON 里的 seat 一律被覆盖，
    * 否则任何人改个数字就能替别人行动。
    */
-  command(seat, cmd) {
-    if (!this.isSeated(seat)) {
-      this.sendTo(seat, { t: "REJECT", reason: "NOT_SEATED" });
-      return { ok: false, reason: "NOT_SEATED" };
-    }
+  command(seat, cmd, rid) {
+    const reject = (reason, detail) => {
+      this.sendTo(seat, {
+        t: "REJECT",
+        reason,
+        ...detail ? { detail } : {},
+        ...rid ? { rid } : {}
+      });
+      return { ok: false, reason, ...detail ? { detail } : {} };
+    };
+    if (!this.isSeated(seat)) return reject("NOT_SEATED");
     const game = this.game;
-    if (!game) {
-      this.sendTo(seat, { t: "REJECT", reason: "GAME_NOT_STARTED" });
-      return { ok: false, reason: "GAME_NOT_STARTED" };
-    }
+    if (!game) return reject("GAME_NOT_STARTED");
     const allowFakeDice = process.env.HEXFONT_FAKE_DICE === "1";
     const safe = allowFakeDice ? { ...cmd, seat } : { ...cmd, dice: void 0, seat };
     const result = applyCommand(this.board, game, safe);
-    if (!result.ok) {
-      this.sendTo(seat, { t: "REJECT", reason: result.reason, detail: result.detail });
-      return { ok: false, reason: result.reason };
-    }
+    if (!result.ok) return reject(result.reason, result.detail);
     this.game = result.state;
     this.seq += 1;
-    if (cmd.type === "END_TURN" && this.offer) {
-      this.offer = null;
-      this.broadcastOffer();
+    const dice = this.game.dice;
+    const rolledSeven = cmd.type === "ROLL_DICE" && !!dice && dice[0] + dice[1] === 7;
+    if (rolledSeven || cmd.type === "END_TURN" || this.game.phase === "ended") {
+      this.clearOffers(
+        rolledSeven ? "ROLL_SEVEN" : this.game.phase === "ended" ? "GAME_END" : "END_TURN"
+      );
     }
     return { ok: true, seq: this.seq, events: result.events };
   }
   // -------------------------------------------------------------------------
-  // 交易报价
+  // 交易报价（指南 7：多条并存、唯一 ID、服务端时钟、一次同步处理内串行裁决）
   // -------------------------------------------------------------------------
-  get currentOffer() {
-    return this.offer;
+  /** 当前恢复快照：顺带做懒清理，保证「到期即不可成交」不依赖定时器 */
+  get offerSnapshot() {
+    return this.snapshot();
+  }
+  snapshot() {
+    this.pruneExpired();
+    const t = this.now();
+    const nextSendAt = {};
+    for (const [seat, until] of this.cooldown) {
+      if (until > t) nextSendAt[String(seat)] = until;
+    }
+    return {
+      offers: this.offers.slice().sort((a, b) => a.createdAt - b.createdAt || a.order - b.order).map((o) => ({
+        id: o.id,
+        from: o.from,
+        to: o.to,
+        give: o.give,
+        get: o.get,
+        createdAt: o.createdAt,
+        expiresAt: o.expiresAt
+      })),
+      version: this.offersVersion,
+      serverTime: t,
+      nextSendAt
+    };
+  }
+  /** 供心跳调用：闲置房间也能清掉过期报价并广播，客户端仍以 expiresAt 自己算倒计时 */
+  purgeExpired() {
+    if (this.pruneExpired().length > 0) this.broadcastOffers("EXPIRED");
+  }
+  pruneExpired() {
+    const t = this.now();
+    const expired = this.offers.filter((o) => o.expiresAt <= t);
+    if (expired.length > 0) {
+      this.offers = this.offers.filter((o) => o.expiresAt > t);
+      this.offersVersion += 1;
+      for (const o of expired) this.expiredIds.set(o.id, t);
+    }
+    for (const [id, at] of this.expiredIds) {
+      if (t - at > 6e4) this.expiredIds.delete(id);
+    }
+    return expired;
+  }
+  /** 区分「这条报价过期了」和「根本没有这条报价」，给客户端明确原因 */
+  missingReason(offerId) {
+    return this.expiredIds.has(offerId) ? "OFFER_EXPIRED" : "OFFER_NOT_FOUND";
+  }
+  broadcastOffers(reason, offerId) {
+    this.sendAll({
+      t: "OFFERS",
+      snapshot: this.snapshot(),
+      reason,
+      ...offerId ? { offerId } : {}
+    });
+  }
+  clearOffers(reason) {
+    this.pruneExpired();
+    this.offers = [];
+    this.offersVersion += 1;
+    this.broadcastOffers(reason);
+  }
+  rejectOfferRequest(seat, reason, rid, detail) {
+    this.sendTo(seat, {
+      t: "REJECT",
+      reason,
+      ...detail ? { detail } : {},
+      ...rid ? { rid } : {}
+    });
+    return { ok: false, reason, ...detail ? { detail } : {} };
   }
   /**
-   * 挂一条报价。
-   * 同一时间只允许一条 —— 桌上只有一个人说话，多挂几条会变成拍卖行。
+   * 挂一条报价。每位玩家最多一条有效报价，房间内可多条并存；重发替换本人旧报价。
+   * 所有校验都在替换之前，新请求失败时旧报价保留；冷却只在成功发送后更新。
    */
-  makeOffer(seat, to, rawGive, rawGet) {
-    if (!this.game || !this.isSeated(seat) || !this.isSeated(to) || seat === to) {
-      this.sendTo(seat, { t: "REJECT", reason: "BAD_OFFER" });
-      return false;
+  makeOffer(seat, to, rawGive, rawGet, rid) {
+    const game = this.game;
+    if (!game) return this.rejectOfferRequest(seat, "GAME_NOT_STARTED", rid);
+    if (!this.isSeated(seat)) return this.rejectOfferRequest(seat, "NOT_SEATED", rid);
+    if (!this.isSeated(to) || seat === to) return this.rejectOfferRequest(seat, "BAD_OFFER", rid);
+    if (game.phase === "ended") return this.rejectOfferRequest(seat, "GAME_ENDED", rid);
+    if (Object.keys(game.pendingDiscards).length > 0) {
+      return this.rejectOfferRequest(seat, "DISCARD_PENDING", rid);
+    }
+    if (seat !== game.current && to !== game.current) {
+      return this.rejectOfferRequest(seat, "OFFER_FORBIDDEN", rid);
     }
     const give = sanitizeCount(rawGive);
     const get = sanitizeCount(rawGet);
     if (countOf(give) === 0 && countOf(get) === 0) {
-      this.sendTo(seat, { t: "REJECT", reason: "BAD_OFFER", detail: "\u4EA4\u6613\u5185\u5BB9\u4E3A\u7A7A" });
-      return false;
+      return this.rejectOfferRequest(seat, "BAD_OFFER", rid, "\u4EA4\u6613\u5185\u5BB9\u4E3A\u7A7A");
     }
-    this.offer = { from: seat, to, give, get };
-    this.broadcastOffer();
-    return true;
+    const t = this.now();
+    const until = this.cooldown.get(seat) ?? 0;
+    if (t < until) {
+      return this.rejectOfferRequest(
+        seat,
+        "OFFER_COOLDOWN",
+        rid,
+        `\u8BF7\u7B49\u5F85 ${Math.ceil((until - t) / 1e3)} \u79D2\u540E\u518D\u53D1`
+      );
+    }
+    this.pruneExpired();
+    const replaced = this.offers.some((o) => o.from === seat);
+    this.offers = this.offers.filter((o) => o.from !== seat);
+    const id = `o${++this.offerCounter}`;
+    this.offers.push({
+      id,
+      from: seat,
+      to,
+      give,
+      get,
+      createdAt: t,
+      expiresAt: t + OFFER_TTL_MS,
+      order: this.offerCounter
+    });
+    this.cooldown.set(seat, t + OFFER_SEND_COOLDOWN_MS);
+    this.offersVersion += 1;
+    this.broadcastOffers(replaced ? "REPLACED" : "CREATED", id);
+    return { ok: true, offerId: id };
   }
-  /** 被报价方接受：交给引擎执行，资源够不够由引擎裁决 */
-  acceptOffer(seat) {
-    const offer = this.offer;
-    if (!offer || offer.to !== seat) {
-      this.sendTo(seat, { t: "REJECT", reason: "BAD_OFFER", detail: "\u6CA1\u6709\u6307\u5411\u4F60\u7684\u62A5\u4EF7" });
-      return { ok: false, reason: "BAD_OFFER" };
+  /**
+   * 被报价方按 ID 接受。检查有效性 → 校验接收人 → 引擎结算 → 删除该报价 → 广播
+   * 在一次同步处理里完成；JS 单线程保证不会有另一条消息插进来。
+   * 资源不足时保留报价到到期并提示，不默默改变数量。
+   */
+  acceptOffer(seat, offerId, rid) {
+    this.pruneExpired();
+    const t = this.now();
+    const offer = this.offers.find((o) => o.id === offerId);
+    if (!offer) {
+      const reason = this.missingReason(offerId);
+      return this.rejectOfferRequest(
+        seat,
+        reason,
+        rid,
+        reason === "OFFER_NOT_FOUND" ? "\u62A5\u4EF7\u4E0D\u5B58\u5728\u6216\u5DF2\u88AB\u5904\u7406" : void 0
+      );
+    }
+    if (offer.expiresAt <= t) {
+      this.offers = this.offers.filter((o) => o.id !== offerId);
+      this.offersVersion += 1;
+      this.broadcastOffers("EXPIRED", offerId);
+      return this.rejectOfferRequest(seat, "OFFER_EXPIRED", rid);
+    }
+    if (offer.to !== seat) return this.rejectOfferRequest(seat, "OFFER_NOT_FOR_YOU", rid);
+    const game = this.game;
+    if (!game || game.phase === "ended") return this.rejectOfferRequest(seat, "GAME_ENDED", rid);
+    if (Object.keys(game.pendingDiscards).length > 0) {
+      return this.rejectOfferRequest(seat, "DISCARD_PENDING", rid);
     }
     const outcome = this.command(offer.from, {
       type: "TRADE_PLAYER",
@@ -5095,24 +5254,41 @@ var Room = class {
       withPlayer: offer.to,
       give: offer.give,
       get: offer.get
-    });
-    if (!outcome.ok) return outcome;
-    this.offer = null;
-    this.broadcastOffer();
-    return outcome;
+    }, rid);
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        reason: outcome.reason,
+        ...outcome.detail ? { detail: outcome.detail } : {}
+      };
+    }
+    this.offers = this.offers.filter((o) => o.id !== offerId);
+    this.offersVersion += 1;
+    this.broadcastOffers("ACCEPTED", offerId);
+    return { ok: true, offerId, seq: outcome.seq, events: outcome.events };
   }
-  rejectOffer(seat) {
-    if (!this.offer || this.offer.to !== seat) return;
-    this.offer = null;
-    this.broadcastOffer();
+  /** 拒绝：只处理指向自己的、且仍有效的那一条；撤回不退还冷却 */
+  rejectOffer(seat, offerId, rid) {
+    this.pruneExpired();
+    const offer = this.offers.find((o) => o.id === offerId);
+    if (!offer) return this.rejectOfferRequest(seat, this.missingReason(offerId), rid);
+    if (offer.expiresAt <= this.now()) return this.rejectOfferRequest(seat, "OFFER_EXPIRED", rid);
+    if (offer.to !== seat) return this.rejectOfferRequest(seat, "OFFER_NOT_FOR_YOU", rid);
+    this.offers = this.offers.filter((o) => o.id !== offerId);
+    this.offersVersion += 1;
+    this.broadcastOffers("REJECTED", offerId);
+    return { ok: true, offerId };
   }
-  cancelOffer(seat) {
-    if (!this.offer || this.offer.from !== seat) return;
-    this.offer = null;
-    this.broadcastOffer();
-  }
-  broadcastOffer() {
-    this.sendAll({ t: "OFFER", offer: this.offer });
+  /** 撤回：只能撤回本人发起的那一条，绝不动别人的报价 */
+  cancelOffer(seat, offerId, rid) {
+    this.pruneExpired();
+    const offer = this.offers.find((o) => o.id === offerId);
+    if (!offer) return this.rejectOfferRequest(seat, this.missingReason(offerId), rid);
+    if (offer.from !== seat) return this.rejectOfferRequest(seat, "OFFER_FORBIDDEN", rid);
+    this.offers = this.offers.filter((o) => o.id !== offerId);
+    this.offersVersion += 1;
+    this.broadcastOffers("CANCELLED", offerId);
+    return { ok: true, offerId };
   }
   // -------------------------------------------------------------------------
   // 广播
@@ -5152,10 +5328,12 @@ var RoomRegistry = class {
   capacity;
   maxRooms;
   board;
+  now;
   constructor(opts = {}) {
     this.capacity = opts.capacity ?? 4;
     this.maxRooms = opts.maxRooms ?? 64;
     this.board = opts.board;
+    this.now = opts.now ?? (() => Date.now());
   }
   get size() {
     return this.rooms.size;
@@ -5164,7 +5342,7 @@ var RoomRegistry = class {
     const hit = this.rooms.get(id);
     if (hit) return hit;
     if (this.rooms.size >= this.maxRooms) return null;
-    const room = new Room(id, { capacity: this.capacity, board: this.board });
+    const room = new Room(id, { capacity: this.capacity, board: this.board, now: this.now });
     this.rooms.set(id, room);
     return room;
   }
@@ -5295,15 +5473,31 @@ function createAppServer(opts = {}) {
   });
   const wss = new import_websocket_server.default({ server: httpServer, maxPayload: 64 * 1024 });
   const sessions = /* @__PURE__ */ new Map();
+  const purgeTimer = setInterval(() => {
+    for (const room of registry.list()) room.purgeExpired();
+  }, 1e3);
+  purgeTimer.unref?.();
+  httpServer.once("close", () => clearInterval(purgeTimer));
   wss.on("connection", (ws) => {
     let alive = true;
     ws.on("pong", () => {
       alive = true;
     });
+    let windowStart = Date.now();
+    let windowCount = 0;
     const reply = (msg) => {
       if (ws.readyState === ws.OPEN) ws.send(encode(msg));
     };
     ws.on("message", (raw) => {
+      const arrivedAt = Date.now();
+      if (arrivedAt - windowStart > 1e3) {
+        windowStart = arrivedAt;
+        windowCount = 0;
+      }
+      if (++windowCount > 60) {
+        reply({ t: "REJECT", reason: "RATE_LIMITED" });
+        return;
+      }
       const msg = decodeClientMessage(raw.toString());
       if (!msg) {
         reply({ t: "JOIN_FAILED", reason: "BAD_MESSAGE" });
@@ -5314,6 +5508,10 @@ function createAppServer(opts = {}) {
           reply({ t: "PONG", id: msg.id });
           return;
         case "JOIN": {
+          if (msg.v !== PROTOCOL_VERSION) {
+            reply({ t: "JOIN_FAILED", reason: "PROTOCOL_MISMATCH" });
+            return;
+          }
           const roomId = normalizeRoomId(msg.roomId) ?? "main";
           const room = registry.getOrCreate(roomId);
           if (!room) {
@@ -5333,7 +5531,9 @@ function createAppServer(opts = {}) {
             capacity: room.capacity,
             players: room.lobbyPlayers(),
             view: result.view,
-            offer: room.currentOffer
+            // 恢复快照：只带未过期报价、列表版本、服务端时间与本人冷却
+            snapshot: room.snapshot(),
+            stateSeq: room.version
           });
           room.broadcastSettings();
           room.sync();
@@ -5352,38 +5552,38 @@ function createAppServer(opts = {}) {
         case "OFFER": {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            reply({ t: "REJECT", reason: "NOT_SEATED", ...msg.rid ? { rid: msg.rid } : {} });
             return;
           }
-          session.room.makeOffer(session.seat, msg.to, msg.give, msg.get);
+          session.room.makeOffer(session.seat, msg.to, msg.give, msg.get, msg.rid);
           return;
         }
         case "OFFER_ACCEPT": {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            reply({ t: "REJECT", reason: "NOT_SEATED", ...msg.rid ? { rid: msg.rid } : {} });
             return;
           }
-          const outcome = session.room.acceptOffer(session.seat);
-          if (outcome.ok) session.room.sync(outcome.events);
+          const outcome = session.room.acceptOffer(session.seat, msg.offerId, msg.rid);
+          if (outcome.ok) session.room.sync(outcome.events ?? []);
           return;
         }
         case "OFFER_REJECT": {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            reply({ t: "REJECT", reason: "NOT_SEATED", ...msg.rid ? { rid: msg.rid } : {} });
             return;
           }
-          session.room.rejectOffer(session.seat);
+          session.room.rejectOffer(session.seat, msg.offerId, msg.rid);
           return;
         }
         case "OFFER_CANCEL": {
           const session = sessions.get(ws);
           if (!session) {
-            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            reply({ t: "REJECT", reason: "NOT_SEATED", ...msg.rid ? { rid: msg.rid } : {} });
             return;
           }
-          session.room.cancelOffer(session.seat);
+          session.room.cancelOffer(session.seat, msg.offerId, msg.rid);
           return;
         }
         case "START": {
@@ -5406,7 +5606,7 @@ function createAppServer(opts = {}) {
             reply({ t: "REJECT", reason: "NOT_SEATED" });
             return;
           }
-          const outcome = session.room.command(session.seat, msg.cmd);
+          const outcome = session.room.command(session.seat, msg.cmd, msg.rid);
           if (outcome.ok) session.room.sync(outcome.events);
           return;
         }

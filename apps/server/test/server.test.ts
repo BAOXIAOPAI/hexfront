@@ -5,7 +5,7 @@ import { buildBoard, MAP_4P, type PlayerView } from '@hexfront/engine';
 // 集成测试要断言确定的骰子点数；服务端子进程会继承这个开关
 process.env.HEXFONT_FAKE_DICE = '1';
 import { createAppServer, type AppServer } from '../src/server.js';
-import type { ClientMessage, ServerMessage } from '../src/protocol.js';
+import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../src/protocol.js';
 
 /**
  * 真实 socket 集成测试：验证 T1 验收条件
@@ -79,7 +79,11 @@ class TestClient {
   }
 
   send(msg: ClientMessage): void {
-    this.ws.send(JSON.stringify(msg));
+    // 测试目标是联机流程，版本字段统一补齐；版本不匹配另有专门用例直接发原始 JSON
+    const payload = msg.t === 'JOIN' && msg.v === undefined
+      ? { ...msg, v: PROTOCOL_VERSION }
+      : msg;
+    this.ws.send(JSON.stringify(payload));
   }
 
   close(): void {
@@ -201,6 +205,29 @@ describe('WebSocket 联机', () => {
 
     c.send({ t: 'PING', id: 1 });
     expect((await c.wait('PONG')).id).toBe(1);
+    c.close();
+  });
+
+  it('缺 v 或旧版本的 JOIN 被明确拒绝，不会静默入座（指南 10.3）', async () => {
+    const c = await TestClient.connect();
+    c.ws.send(JSON.stringify({ t: 'JOIN', roomId: 'version', name: '甲' }));
+    expect((await c.wait('JOIN_FAILED')).reason).toBe('PROTOCOL_MISMATCH');
+    c.close();
+
+    const d = await TestClient.connect();
+    d.ws.send(JSON.stringify({ t: 'JOIN', roomId: 'version', name: '乙', v: PROTOCOL_VERSION - 1 }));
+    expect((await d.wait('JOIN_FAILED')).reason).toBe('PROTOCOL_MISMATCH');
+    d.close();
+  });
+
+  it('WELCOME 带恢复快照与权威状态版本', async () => {
+    const c = await TestClient.connect();
+    c.send({ t: 'JOIN', roomId: 'snapshot', name: '甲' });
+    const welcome = await c.wait('WELCOME');
+    expect(welcome.snapshot.offers).toEqual([]);
+    expect(welcome.snapshot.version).toBe(0);
+    expect(typeof welcome.snapshot.serverTime).toBe('number');
+    expect(welcome.stateSeq).toBe(0);
     c.close();
   });
 

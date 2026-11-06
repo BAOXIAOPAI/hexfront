@@ -7,9 +7,9 @@
 
 ## 一句话现状
 
-> ⚠️ 2026-11-06 起进入重构，请先读 [`11-phase-a-baseline.md`](./11-phase-a-baseline.md)（阶段 A 基线、实测与规则契约）和 [`10-refactor-guide.md`](./10-refactor-guide.md)（目标行为）。本文件描述的是**改造前的代码事实**，不是重构目标；文末「下一会话建议」中的 5–6 人扩展已被指南列为暂缓项。
+> ⚠️ 2026-11-06 起进入重构，请先读 [`13-phase-c.md`](./13-phase-c.md)（阶段 C 最新状态）与 [`10-refactor-guide.md`](./10-refactor-guide.md)（目标行为）。本文件多数内容仍是**改造前的代码事实**；阶段 C 已升级协议 v2、重做报价与掷 7 结算，权威规则见 `06` 的 0.0 节。文末「下一会话建议」中的 5–6 人扩展已被指南列为暂缓项。
 
-规则引擎、服务端、前端都已完成并联调通过，**阶段 A 实测 268 个测试通过、22 条目标 todo**，本地可玩。
+规则引擎、服务端、前端都已完成并联调通过，**阶段 C 实测 290 个测试通过、2 条阶段 D todo**，本地可玩。
 唯一没完成的是**发布上线**——被账号权限卡住（见文末）。
 
 ---
@@ -48,10 +48,11 @@ pnpm dev          # 服务端 8787 + 前端 5173
 |---|---|---|
 | 弃牌取整 | **向上取整**（9 张弃 5 张），玩家自选弃哪几张（V-9） | `rules/roll.ts` `discardCount()` |
 | 借港租金（原 Q-02） | 系统只做代换，租金语音自理，**不记账** | `rules/trade.ts` `portTransfer()` |
-| 无主请求超时（原 Q-06） | 报价在**回合结束时作废** | `server/src/room.ts` `END_TURN` 分支 |
+| 无主请求超时（原 Q-06） | 阶段 C 改为**每条报价 10 秒过期**；掷 7、回合结束、游戏结束清空全部；不再只是回合结束作废 | `server/src/room.ts` `clearOffers()` |
 | 借港次数（原 Q-03） | 不限制 | 同上 |
 | 骰子 | **服务端剥离客户端传来的 `dice`**，防作弊；仅 `HEXFONT_FAKE_DICE=1` 放行 | `server/src/room.ts` `command()` |
-| 报价数量 | 同一时间只允许**一条** | `server/src/room.ts` `makeOffer()` |
+| 报价数量 | 阶段 C 改为**每人最多 1 条、房间可多条并存**；重发原子替换，发送后冷却 3 秒 | `server/src/room.ts` `makeOffer()` |
+| 协议版本 | 阶段 C 升到 **v2**，JOIN 必须带 `v`，服务端拒绝错位客户端；按 ID 处理报价 | `packages/protocol/src/index.ts` |
 | 断线座位 | 保留到**整局结束**，不做 30 分钟 TTL | `room.ts` `leave()` |
 | 传输层 | 自建 WebSocket，**连接必须带 `?sharecode=`**（平台代理鉴权） | `web/src/net.ts` `wsUrlFor()` |
 | 前端框架 | Vite + 原生 TS，不引 React/Vue | `apps/web` |
@@ -99,7 +100,7 @@ apps/web/src/
 ## 测试
 
 ```bash
-pnpm test        # 实测数量见 11-phase-a-baseline.md，勿沿用 224
+pnpm test        # 实测数量见 13-phase-c.md，勿沿用 224
 pnpm typecheck
 ```
 

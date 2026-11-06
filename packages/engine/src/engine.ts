@@ -53,6 +53,16 @@ const ROAD_AFFECTING: ReadonlySet<Command['type']> = new Set([
   'BUILD_ROAD', 'BUILD_SETTLEMENT', 'BUILD_CITY', 'PLAY_ROAD_BUILDING',
 ]);
 
+/** 强盗待移动时仍然禁止的命令；其余（建造/兑换/交易/移动强盗）放行 */
+const ROBBER_BLOCKED: ReadonlySet<Command['type']> = new Set([
+  'BUY_DEV_CARD',
+  'PLAY_KNIGHT',
+  'PLAY_MONOPOLY',
+  'PLAY_PLENTY',
+  'PLAY_ROAD_BUILDING',
+  'END_TURN',
+]);
+
 /**
  * 引擎唯一入口。纯函数：不修改传入的 state，返回新 state 与事件。
  *
@@ -64,9 +74,11 @@ export function applyCommand(board: Board, state: GameState, cmd: Command): Appl
   if (discarding && cmd.type !== 'DISCARD') {
     return { ok: false, reason: 'DISCARD_PENDING' };
   }
-  // ② 移动强盗阶段：弃牌清空后，掷骰者必须先挪强盗（含抽牌），
-  //    期间只放行 MOVE_ROBBER —— 否则可以绕过强盗直接结束回合，或者空放骑士牌重复移动
-  if (!discarding && state.pendingRobber && cmd.type !== 'MOVE_ROBBER') {
+  // ② 强盗待移动阶段（指南 8.2 已确认的行动矩阵）：
+  //    全员弃完后恢复建造 / 银行 / 借港 / 玩家交易，只有发展卡与结束回合继续禁用。
+  //    发展卡禁用是为了避免骑士二次移动及其他结算冲突；结束回合仍需完成强盗结算。
+  //    这里由引擎裁决，服务端不能只靠前端禁用按钮。
+  if (!discarding && state.pendingRobber && ROBBER_BLOCKED.has(cmd.type)) {
     return { ok: false, reason: 'ROBBER_PENDING' };
   }
 

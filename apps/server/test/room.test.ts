@@ -42,7 +42,7 @@ describe('骰子不可由客户端指定', () => {
   });
 });
 
-describe('交易报价', () => {
+describe('交易报价（阶段 C：ID + 快照）', () => {
   function ready(): { room: Room; a: FakeSocket; b: FakeSocket } {
     const { room, a, b } = twoSeatRoom();
     driveSetup(room);
@@ -51,92 +51,94 @@ describe('交易报价', () => {
     g.players[1]!.resources.wheat = 2;
     return { room, a, b };
   }
+  function idOf(outcome: { ok: boolean; offerId?: string }): string {
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok || !outcome.offerId) throw new Error('报价未创建');
+    return outcome.offerId;
+  }
 
-  it('挂出报价后双方都收到 OFFER', () => {
+  it('挂出报价后双方都收到 OFFERS 快照', () => {
     const { room, a, b } = ready();
     a.clear();
     b.clear();
 
-    expect(room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 })).toBe(true);
-    expect(a.sent.some((m) => m.t === 'OFFER')).toBe(true);
-    expect(b.sent.some((m) => m.t === 'OFFER')).toBe(true);
-    expect(room.currentOffer).toEqual({ from: 0, to: 1, give: { wood: 2 }, get: { wheat: 1 } });
+    const id = idOf(room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 }));
+    for (const s of [a, b]) {
+      const msg = s.sent.find((m) => m.t === 'OFFERS');
+      expect(msg).toMatchObject({ t: 'OFFERS', reason: 'CREATED', offerId: id });
+    }
+    expect(room.offerSnapshot.offers[0]).toMatchObject({
+      id, from: 0, to: 1, give: { wood: 2 }, get: { wheat: 1 },
+    });
   });
 
-  it('被报价方接受后执行交易', () => {
+  it('被报价方按 ID 接受后执行交易', () => {
     const { room } = ready();
-    room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 });
+    const id = idOf(room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 }));
 
-    const outcome = room.acceptOffer(1);
-    expect(outcome.ok).toBe(true);
+    expect(room.acceptOffer(1, id).ok).toBe(true);
     expect(room.game!.players[0]!.resources.wood).toBe(1);
     expect(room.game!.players[0]!.resources.wheat).toBe(1);
     expect(room.game!.players[1]!.resources.wood).toBe(2);
-    expect(room.currentOffer).toBeNull();
+    expect(room.offerSnapshot.offers).toHaveLength(0);
   });
 
-  it('发起方不能替对方接受', () => {
+  it('发起方不能替对方接受，且旧 ID 不能再被处理', () => {
     const { room } = ready();
-    room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 });
-
-    const outcome = room.acceptOffer(0);
-    expect(outcome.ok).toBe(false);
-    expect(room.currentOffer).not.toBeNull();
+    const id = idOf(room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 }));
+    const out = room.acceptOffer(0, id);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toBe('OFFER_NOT_FOR_YOU');
+    expect(room.offerSnapshot.offers).toHaveLength(1);
   });
 
-  it('拒绝后报价消失', () => {
+  it('拒绝与撤回都按 ID 生效', () => {
     const { room } = ready();
-    room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 });
-    room.rejectOffer(1);
-    expect(room.currentOffer).toBeNull();
-  });
+    const id = idOf(room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 }));
+    expect(room.rejectOffer(1, id).ok).toBe(true);
+    expect(room.offerSnapshot.offers).toHaveLength(0);
 
-  it('发起方可以撤回', () => {
-    const { room } = ready();
-    room.makeOffer(0, 1, { wood: 2 }, { wheat: 1 });
-    room.cancelOffer(0);
-    expect(room.currentOffer).toBeNull();
+    const id2 = idOf(room.makeOffer(1, 0, { wheat: 1 }, { wood: 1 }));
+    expect(room.cancelOffer(1, id2).ok).toBe(true);
+    expect(room.offerSnapshot.offers).toHaveLength(0);
   });
 
   it('资源不够时接受被拒，报价仍留着', () => {
     const { room } = ready();
-    room.makeOffer(0, 1, { wood: 99 }, {});
-
-    const outcome = room.acceptOffer(1);
-    expect(outcome.ok).toBe(false);
-    expect(room.currentOffer).not.toBeNull();
+    const id = idOf(room.makeOffer(0, 1, { wood: 99 }, {}));
+    const out = room.acceptOffer(1, id);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toBe('INSUFFICIENT_RESOURCES');
+    expect(room.offerSnapshot.offers).toHaveLength(1);
   });
 
   it('零对价合法（赠予牌）', () => {
     const { room } = ready();
-    room.makeOffer(0, 1, { wood: 3 }, {});
-
-    const outcome = room.acceptOffer(1);
-    expect(outcome.ok).toBe(true);
+    const id = idOf(room.makeOffer(0, 1, { wood: 3 }, {}));
+    expect(room.acceptOffer(1, id).ok).toBe(true);
     expect(room.game!.players[0]!.resources.wood).toBe(0);
     expect(room.game!.players[1]!.resources.wood).toBe(3);
   });
 
   it('清洗非法资源字段，全空则拒绝建价', () => {
     const { room } = ready();
-    const ok = room.makeOffer(0, 1, { wood: -5, gold: 3 } as never, {});
-    expect(ok).toBe(false);
-    expect(room.currentOffer).toBeNull();
+    const out = room.makeOffer(0, 1, { wood: -5, gold: 3 } as never, {});
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toBe('BAD_OFFER');
+    expect(room.offerSnapshot.offers).toHaveLength(0);
   });
 
   it('不能和自己交易', () => {
     const { room } = ready();
-    expect(room.makeOffer(0, 0, { wood: 1 }, {})).toBe(false);
+    expect(room.makeOffer(0, 0, { wood: 1 }, {}).ok).toBe(false);
   });
 
   it('结束回合后报价作废', () => {
     const { room } = ready();
-    room.makeOffer(0, 1, { wood: 1 }, {});
-
+    idOf(room.makeOffer(0, 1, { wood: 1 }, {}));
     room.command(0, { type: 'ROLL_DICE', seat: 0, dice: [2, 3] });
-    room.command(0, { type: 'END_TURN', seat: 0 });
-
-    expect(room.currentOffer).toBeNull();
+    expect(room.command(0, { type: 'END_TURN', seat: 0 }).ok).toBe(true);
+    expect(room.offerSnapshot.offers).toHaveLength(0);
   });
 });
 

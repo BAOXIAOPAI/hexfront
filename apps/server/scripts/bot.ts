@@ -20,6 +20,7 @@
  */
 
 import WebSocket from 'ws';
+import { PROTOCOL_VERSION } from '@hexfront/protocol';
 import {
   RESOURCES,
   MAP_4P,
@@ -267,7 +268,7 @@ async function main(): Promise<void> {
 
   const client = new Client(url);
   await client.open();
-  client.send({ t: 'JOIN', roomId: roomIdFromUrl(url), name });
+  client.send({ t: 'JOIN', roomId: roomIdFromUrl(url), name, v: PROTOCOL_VERSION });
 
   const welcome = await client.next((m) => m.t === 'WELCOME' || m.t === 'JOIN_FAILED');
   if (welcome.t === 'JOIN_FAILED') {

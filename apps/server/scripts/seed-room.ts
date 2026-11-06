@@ -13,6 +13,7 @@
 
 import WebSocket from 'ws';
 import { MAP_4P, buildBoard, type PlayerView } from '@hexfront/engine';
+import { PROTOCOL_VERSION } from '@hexfront/protocol';
 
 type Msg = Record<string, unknown> & { t: string };
 
@@ -123,7 +124,7 @@ async function main(): Promise<void> {
   for (const name of names) {
     const c = new Client(url, (v, s) => { view = v; lastSeq = s; });
     await c.open();
-    c.send({ t: 'JOIN', roomId, name });
+    c.send({ t: 'JOIN', roomId, name, v: PROTOCOL_VERSION });
     const welcome = await c.next((m) => m.t === 'WELCOME' || m.t === 'JOIN_FAILED');
     if (welcome.t !== 'WELCOME') throw new Error(`入座失败：${String(welcome.reason)}`);
     console.error(`[seed] ${name} → seat ${String(welcome.seat)}`);

@@ -6,7 +6,7 @@
  */
 
 import type { Command, PlayerView } from '@hexfront/engine';
-import type { LobbyPlayer, TradeOfferView } from '@hexfront/protocol';
+import type { LobbyPlayer } from '@hexfront/protocol';
 import { GameClient, wsUrlFor } from './net.js';
 import { Ui } from './ui.js';
 
@@ -16,6 +16,8 @@ const wsUrl = wsUrlFor({ origin: location.origin, sharecode });
 
 let client: GameClient | null = null;
 let view: PlayerView | null = null;
+/** 权威状态版本：拒绝乱序/过期的 STATE 覆盖新状态（指南 10.1） */
+let lastSeq = 0;
 let mySeat = 0;
 let capacity = 4;
 let lobbyPlayers: LobbyPlayer[] = [];
@@ -44,9 +46,9 @@ const ui = new Ui({
     else send({ type: 'BUILD_CITY', seat: mySeat, vertex: target });
   },
   onOffer: (to, give, get) => client?.makeOffer(to, give, get),
-  onOfferAccept: () => client?.acceptOffer(),
-  onOfferReject: () => client?.rejectOffer(),
-  onOfferCancel: () => client?.cancelOffer(),
+  onOfferAccept: (offerId) => client?.acceptOffer(offerId),
+  onOfferReject: (offerId) => client?.rejectOffer(offerId),
+  onOfferCancel: (offerId) => client?.cancelOffer(offerId),
   onStart: () => client?.start(),
   onSettings: (setupGrant) => client?.send({ t: 'SET_SETTINGS', setupGrant }),
   onMoveRobber: (tile, stealFrom) =>
@@ -75,6 +77,7 @@ function remember(): void {
 function connect(): void {
   client?.close();
   view = null;
+  lastSeq = 0;
   ui.setRoom(roomId);
 
   client = new GameClient(wsUrl, { roomId, name: myName }, {
@@ -87,11 +90,13 @@ function connect(): void {
           capacity = msg.capacity;
           roomId = msg.roomId;
           lobbyPlayers = msg.players;
+          lastSeq = msg.stateSeq;
           ui.setRoom(msg.roomId);
+          // 恢复快照：只恢复未过期的报价，冷却以服务端时间为准
+          ui.setOffers(msg.snapshot, mySeat);
           if (msg.view) {
             view = msg.view;
             ui.hideOverlay();
-            ui.setOffer(msg.offer);
             ui.render(view, []);
             ui.say('已连上牌桌，等待下一步操作', '在线');
           } else {
@@ -113,6 +118,9 @@ function connect(): void {
           return;
         }
         case 'STATE': {
+          // 状态版本：乱序到达的旧广播不能覆盖已经画出来的新状态
+          if (msg.seq < lastSeq) return;
+          lastSeq = msg.seq;
           view = msg.view;
           ui.hideOverlay();
           ui.render(view, msg.events);
@@ -132,14 +140,14 @@ function connect(): void {
           ui.say(rejectText(msg.reason, msg.detail), '拒绝');
           return;
         }
-        case 'OFFER': {
-          ui.setOffer(msg.offer);
-          if (msg.offer) {
-            const from = playerNameOf(msg.offer.from);
-            const to = playerNameOf(msg.offer.to);
-            ui.say(`${from} 向 ${to} 报价`, '交易');
-          } else {
+        case 'OFFERS': {
+          ui.setOffers(msg.snapshot, mySeat);
+          const count = msg.snapshot.offers.length;
+          if (count === 0) {
             ui.say('报价已结束', '交易');
+          } else {
+            const first = msg.snapshot.offers[0]!;
+            ui.say(`${playerNameOf(first.from)} 向 ${playerNameOf(first.to)} 报价 · 共 ${count} 条`, '交易');
           }
           return;
         }
@@ -186,6 +194,14 @@ function rejectText(reason: string, detail?: string): string {
     NOTHING_TO_DISCARD: '没有需要弃的牌',
     WRONG_DISCARD_COUNT: '弃牌数量不对',
     DISCARD_PENDING: '还有人在弃牌',
+    OFFER_EXPIRED: '报价已过期，请返回列表',
+    OFFER_NOT_FOUND: '报价不存在或已被处理',
+    OFFER_NOT_FOR_YOU: '这条报价不是给你的',
+    OFFER_COOLDOWN: '发送太频繁，请稍等再发',
+    OFFER_FORBIDDEN: '现在不能向这位玩家报价',
+    OFFER_REPLACED: '报价已被发起人的新报价替换',
+    GAME_ENDED: '本局已结束',
+    RATE_LIMITED: '请求过于频繁，请稍等',
     ROBBER_PENDING: '掷出 7 后必须先把强盗挪走',
     ROBBER_NOT_PENDING: '现在不需要移动强盗（要打骑士卡）',
     GAME_NOT_STARTED: '还没开局',
@@ -203,6 +219,7 @@ function fatalText(reason: string): string {
     SEAT_TAKEN: '这个名字已经有人在用',
     ROOM_LIMIT: '服务器房间数已达上限',
     BAD_MESSAGE: '消息格式不对，可能是版本不一致',
+    PROTOCOL_MISMATCH: '客户端与服务端协议版本不一致，请刷新页面',
   };
   return map[reason] ?? `无法入座（${reason}）`;
 }

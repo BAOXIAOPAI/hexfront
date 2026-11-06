@@ -26,7 +26,9 @@ function join(displayName) {
     }, 5000);
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({ t: 'JOIN', roomId, name: displayName }));
+      // 必须与 packages/protocol/src/index.ts 的 PROTOCOL_VERSION 保持一致；
+      // 服务端会拒绝不带 v 或版本错位的 JOIN（指南 10.3）。
+      ws.send(JSON.stringify({ t: 'JOIN', roomId, name: displayName, v: 2 }));
     });
 
     ws.on('message', (raw) => {
