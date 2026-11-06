@@ -1,0 +1,13 @@
+{
+  "name": "hexfront",
+  "private": true,
+  "version": "0.0.1",
+  "description": "卡坦变体线上桌游",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm --filter @hexfront/web build && pnpm --filter @hexfront/server build",
+    "start": "pnpm --filter @hexfront/server start",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

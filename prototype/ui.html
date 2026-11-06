@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>六角拓荒 · 界面视觉稿</title>
+<style>
+  :root{
+    --wood-dark:#8B6A47;
+    --wood:#BE8B5E;
+    --wood-hi:#D6A87C;
+    --paper:#FFF9F0;
+    --paper-2:#FBF1E2;
+    --ink:#4A3325;
+    --ink-2:#6B5445;
+    --muted:#9C8574;
+    --line:#E2D4C2;
+
+    --accent:#E8952F;
+    --accent-dk:#BC6E12;
+    --blue:#5E9DB8;
+    --red:#C8503F;
+    --green:#7FA85C;
+
+    --sh-sm:0 2px 6px rgba(74,51,37,.10);
+    --sh-md:0 4px 14px rgba(74,51,37,.14);
+    --sh-lg:0 12px 34px rgba(74,51,37,.22);
+
+    --r-md:12px;
+    --r-lg:18px;
+    --r-xl:24px;
+
+    --font-title:"Yuanti SC","Hiragino Sans GB","PingFang SC",sans-serif;
+    --font-body:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--font-body);
+    color:var(--ink);
+    background:#2A1F17;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .app{
+    height:100vh;width:100%;
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:62px 1fr 220px;
+    background:var(--paper-2);
+    overflow:hidden;
+  }
+
+  .topbar{
+    display:flex;align-items:center;gap:18px;
+    padding:0 20px;
+    background:linear-gradient(180deg,#FFFBF4,#F7EBDA);
+    border-bottom:1px solid #E8D9C4;
+    box-shadow:0 2px 8px rgba(74,51,37,.06);
+    position:relative;z-index:5;
+  }
+  .brand{display:flex;align-items:center;gap:9px;}
+  .brand svg{display:block;}
+  .brand .name{
+    font-family:var(--font-title);font-size:16px;font-weight:700;
+    letter-spacing:.06em;color:var(--ink);
+  }
+  .room{
+    display:flex;align-items:center;gap:8px;
+    background:#FFF6E8;border:1.5px solid #E4D0B4;border-radius:999px;
+    padding:5px 14px 5px 10px;font-size:12px;color:var(--ink-2);
+  }
+  .room b{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--ink);letter-spacing:.08em;}
+  .room .dot{width:7px;height:7px;border-radius:50%;background:#7FA85C;box-shadow:0 0 0 3px rgba(127,168,92,.18);}
+
+  .topmid{flex:1;display:flex;justify-content:center;gap:10px;}
+  .turnchip{
+    display:flex;align-items:center;gap:9px;
+    background:linear-gradient(180deg,#FFE9C4,#F7D79E);
+    border:1.5px solid #E0B168;border-radius:999px;
+    padding:6px 18px 6px 8px;
+    box-shadow:0 2px 0 #D8A85C,0 4px 10px rgba(200,150,60,.22);
+  }
+  .turnchip .ava{width:26px;height:26px;}
+  .turnchip span{font-size:12.5px;font-weight:600;color:#6B4416;}
+
+  .draftflag{
+    font-size:11px;color:#A08B72;border:1px dashed #D8C3A8;
+    border-radius:6px;padding:3px 8px;letter-spacing:.04em;
+  }
+  .iconbtn{
+    width:34px;height:34px;border-radius:10px;border:1.5px solid #E4D0B4;
+    background:#FFF8EC;display:grid;place-items:center;cursor:pointer;
+    transition:.15s;
+  }
+  .iconbtn:hover{background:#FFF0DA;border-color:#D8BE9A;}
+
+  .main{
+    display:grid;
+    grid-template-columns:238px minmax(0,1fr) 262px;
+    min-height:0;
+  }
+
+  .panel{
+    background:linear-gradient(180deg,#FDF6E9,#F8EDDB);
+    border-right:1px solid #E8D9C4;
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .panel.right{border-right:none;border-left:1px solid #E8D9C4;}
+  .panel-head{
+    padding:14px 16px 8px;
+    font-family:var(--font-title);font-size:12px;font-weight:700;
+    letter-spacing:.14em;color:var(--muted);text-transform:uppercase;
+  }
+
+  .players{padding:0 12px;display:flex;flex-direction:column;gap:8px;}
+  .player{
+    display:flex;align-items:center;gap:10px;
+    background:var(--paper);
+    border:1.5px solid #E6D6C0;border-radius:var(--r-md);
+    padding:9px 11px;
+    box-shadow:0 1px 0 #fff inset,var(--sh-sm);
+    transition:.18s;
+  }
+  .player.active{
+    border-color:#E0A94E;
+    background:linear-gradient(180deg,#FFFBF2,#FFF4DF);
+    box-shadow:0 0 0 3px rgba(232,149,47,.16),var(--sh-md);
+  }
+  .ava{
+    width:34px;height:34px;border-radius:50%;flex:none;
+    display:grid;place-items:center;
+    font-family:var(--font-title);font-size:13px;font-weight:700;
+    background:var(--c);color:#fff;
+    border:2px solid #4A3325;
+    box-shadow:0 2px 4px rgba(74,51,37,.2);
+  }
+  .ava.light{color:#6B5445;}
+  .pinfo{flex:1;min-width:0;}
+  .pname{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;}
+  .pname .flag{
+    font-size:9px;font-weight:700;color:#8A5A12;background:#FFE3B0;
+    border:1px solid #E4B86A;border-radius:4px;padding:1px 4px;letter-spacing:.03em;
+  }
+  .pmeta{font-size:11px;color:var(--muted);margin-top:2px;}
+  .pscore{
+    font-family:var(--font-title);font-size:19px;font-weight:700;
+    color:var(--ink);line-height:1;flex:none;
+  }
+  .pscore small{font-size:9px;color:var(--muted);font-weight:400;margin-left:1px;}
+
+  .ptrack{display:flex;gap:3px;margin-top:5px;}
+  .ptrack i{
+    width:100%;height:4px;border-radius:2px;background:#EADCC8;
+  }
+  .ptrack i.on{background:var(--c);}
+
+  .sidebox{
+    margin:14px 12px 0;padding:11px 13px;
+    background:#FFF6E8;border:1.5px dashed #E0CDB2;border-radius:var(--r-md);
+    font-size:12px;color:var(--ink-2);line-height:1.85;
+  }
+  .sidebox b{color:var(--ink);font-weight:600;}
+  .sidebox .row{display:flex;justify-content:space-between;gap:8px;}
+  .sidebox .row + .row{margin-top:2px;}
+
+  .log{padding:0 14px;display:flex;flex-direction:column;gap:8px;overflow:hidden;}
+  .logitem{display:flex;gap:7px;font-size:11.5px;color:var(--muted);line-height:1.5;}
+  .logitem b{color:var(--ink-2);font-weight:600;}
+  .logitem .lt{color:#BCA894;flex:none;font-variant-numeric:tabular-nums;}
+
+  .devcards{padding:0 12px;display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+  .devcard{
+    background:var(--paper);border:1.5px solid #E6D6C0;border-radius:10px;
+    padding:7px 10px;box-shadow:var(--sh-sm);
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .devcard b{font-size:11.5px;font-weight:600;color:var(--ink-2);}
+  .devcard span{font-family:var(--font-title);font-size:15px;font-weight:700;color:var(--accent);}
+  .devcard span.zero{color:#C9B79F;}
+
+  .table{
+    position:relative;overflow:hidden;min-width:0;
+    background-color:#173F4F;
+    background-image:
+      radial-gradient(ellipse 85% 70% at 50% 26%, #357891 0%, #235D74 38%, #174351 68%, #102F3C 100%),
+      repeating-linear-gradient(118deg, rgba(255,255,255,.020) 0 2px, transparent 2px 19px);
+    box-shadow:inset 0 0 120px rgba(4,20,28,.55);
+  }
+  .table::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    box-shadow:inset 0 0 0 1px rgba(160,220,240,.10);
+  }
+  #board{position:absolute;left:0;top:0;display:block;z-index:1;}
+
+  .hand{display:flex;flex-direction:column;gap:7px;padding:0 12px;}
+  .resline{
+    display:flex;align-items:center;gap:10px;
+    background:var(--paper);border:1.5px solid #E6D6C0;border-radius:var(--r-md);
+    padding:8px 12px;box-shadow:var(--sh-sm);
+  }
+  .resico{
+    width:30px;height:30px;border-radius:9px;flex:none;
+    display:grid;place-items:center;
+    font-family:var(--font-title);font-size:14px;font-weight:700;color:#fff;
+    border:2px solid #4A3325;
+    text-shadow:0 1px 2px rgba(0,0,0,.28);
+  }
+  .resico.light{color:#5A4033;text-shadow:none;}
+  .resname{flex:1;font-size:12.5px;color:var(--ink-2);}
+  .rescount{font-family:var(--font-title);font-size:18px;font-weight:700;}
+
+  .actions{padding:14px 12px;display:flex;flex-direction:column;gap:8px;margin-top:auto;}
+  .btn{
+    border:none;cursor:pointer;font-family:var(--font-body);
+    font-size:13.5px;font-weight:600;color:#fff;
+    border-radius:14px;padding:13px 16px;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    transition:transform .08s,box-shadow .08s,filter .15s;
+    position:relative;
+  }
+  .btn.primary{
+    background:linear-gradient(180deg,#F5A94A,#E8952F);
+    box-shadow:0 4px 0 var(--accent-dk),0 8px 18px rgba(200,120,20,.3);
+    text-shadow:0 1px 2px rgba(150,80,0,.3);
+  }
+  .btn.primary:active{transform:translateY(3px);box-shadow:0 1px 0 var(--accent-dk),0 3px 8px rgba(200,120,20,.3);}
+  .btn.primary:hover{filter:brightness(1.05);}
+  .btn.ghost{
+    background:linear-gradient(180deg,#FFFDF8,#F8EDDB);
+    color:var(--ink);border:1.5px solid #DCC7AA;
+    box-shadow:0 3px 0 #D8C3A6,0 6px 12px rgba(74,51,37,.1);
+  }
+  .btn.ghost:active{transform:translateY(2px);box-shadow:0 1px 0 #D8C3A6;}
+  .btn.mini{font-size:12px;padding:9px 12px;border-radius:11px;}
+
+  .btnrow{display:flex;gap:8px;}
+  .btnrow .btn{flex:1;}
+
+  .bottombar{
+    position:relative;z-index:6;
+    display:flex;flex-direction:column;
+    background:linear-gradient(180deg,rgba(248,237,219,0) 0%,#F8EDDB 22%,#F1E0C8 100%);
+  }
+  .bottombar::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,transparent,rgba(74,51,37,.06));
+  }
+  .opbar{
+    height:60px;display:flex;align-items:center;gap:10px;
+    padding:0 20px;position:relative;z-index:4;
+  }
+  .opbar .feed{flex:1;min-width:80px;}
+
+  .handrow{
+    flex:1;display:flex;align-items:flex-end;justify-content:center;
+    padding:0 16px 18px;position:relative;z-index:3;
+  }
+
+  .card{
+    width:88px;height:104px;margin-left:-19px;
+    border-radius:13px;overflow:hidden;
+    background:linear-gradient(180deg,#FFFDF8,#F6E9D5);
+    border:2px solid #4A3325;
+    box-shadow:0 6px 14px rgba(74,51,37,.22);
+    display:flex;flex-direction:column;align-items:center;
+    cursor:pointer;position:relative;flex:none;
+    transform-origin:50% 100%;
+    transform:rotate(var(--rot,0deg)) translateY(var(--lift,0px));
+    transition:transform .2s cubic-bezier(.34,1.5,.64,1),box-shadow .2s;
+    animation:cardIn .5s cubic-bezier(.34,1.4,.64,1) both;
+  }
+  .card:first-child{margin-left:0;}
+  .card:hover{
+    transform:rotate(0deg) translateY(-30px) scale(1.09);
+    box-shadow:0 20px 38px rgba(74,51,37,.34);
+    z-index:30;
+  }
+  @keyframes cardIn{
+    from{opacity:0;transform:rotate(var(--rot,0deg)) translateY(46px);}
+    to{opacity:1;transform:rotate(var(--rot,0deg)) translateY(var(--lift,0px));}
+  }
+  .cband{
+    width:100%;height:28px;flex:none;
+    display:grid;place-items:center;
+    font-family:var(--font-title);font-size:14px;font-weight:700;
+    color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.28);
+    border-bottom:2px solid #4A3325;
+  }
+  .cband.light{color:#5A4033;text-shadow:none;}
+  .cnum{
+    font-family:var(--font-title);font-size:30px;font-weight:700;
+    line-height:1;margin-top:8px;color:var(--ink);
+  }
+  .cname{
+    position:absolute;left:0;right:0;bottom:7px;
+    font-size:10px;color:var(--muted);text-align:center;
+  }
+  .cplus{
+    position:absolute;right:6px;bottom:5px;font-size:9px;
+    color:#B8A48E;letter-spacing:.05em;
+  }
+  .card.empty{opacity:.6;}
+  .card.empty .cnum{color:#B8A48E;}
+
+  @keyframes rollSpin{
+    0%{transform:rotate(0deg) translateY(0) scale(1);}
+    30%{transform:rotate(110deg) translateY(-10px) scale(1.07);}
+    60%{transform:rotate(235deg) translateY(0) scale(1);}
+    100%{transform:rotate(360deg) translateY(0) scale(1);}
+  }
+  .dice.rolling{animation:rollSpin .72s cubic-bezier(.3,.7,.4,1);}
+
+  .tile{
+    transform-box:fill-box;transform-origin:center;
+    animation:tileIn .55s cubic-bezier(.2,.8,.3,1) both;
+  }
+  @keyframes tileIn{
+    from{opacity:0;transform:scale(.85);}
+    to{opacity:1;transform:scale(1);}
+  }
+
+  .mobilebar{display:none;gap:6px;margin-left:auto;align-items:center;}
+  .mav{
+    width:32px;height:32px;border-radius:50%;background:var(--c);
+    border:2px solid #4A3325;display:grid;place-items:center;
+    font-size:12px;font-weight:700;color:#fff;position:relative;flex:none;
+  }
+  .mav i{
+    position:absolute;bottom:-5px;right:-5px;background:#FFF6E4;
+    border:1.5px solid #4A3325;border-radius:999px;
+    font-size:9px;font-style:normal;color:#4A3325;padding:0 4px;line-height:13px;
+  }
+
+  @media (max-width: 900px){
+    .app{grid-template-rows:50px 1fr 196px;}
+    .main{grid-template-columns:minmax(0,1fr);}
+    .panel{display:none;}
+    .topmid{display:none;}
+    .mobilebar{display:flex;margin-left:0;flex:none;}
+    .topbar{padding:0 12px;gap:8px;justify-content:center;overflow:hidden;}
+    .brand{display:none;}
+    .mobilebar{margin:0 auto;flex:none;gap:8px;}
+    .mav{width:30px;height:30px;font-size:11px;}
+    .brand svg{width:22px;height:22px;}
+    .room{display:none;}
+    .draftflag{display:none;}
+    .iconbtn{display:none;}
+    .mav{width:26px;height:26px;font-size:10px;flex:none;}
+    .mav i{font-size:8px;padding:0 3px;line-height:11px;bottom:-4px;right:-4px;}
+    .mobilebar{gap:5px;}
+    .mav i{font-size:8px;padding:0 3px;line-height:12px;}
+    .opbar{height:52px;padding:0 8px;gap:5px;}
+    .opbar .feed{display:none;}
+    .opbar .btn{font-size:11px;padding:8px 9px;border-radius:10px;}
+    .opbar .dice{width:30px;height:30px;font-size:14px;border-radius:8px;}
+    .card{width:62px;height:80px;margin-left:-14px;border-radius:10px;}
+    .cband{height:20px;font-size:10.5px;}
+    .cnum{font-size:20px;margin-top:5px;}
+    .cname{font-size:8.5px;margin-top:2px;}
+    .card:hover{transform:rotate(0deg) translateY(-12px) scale(1.04);}
+    .handrow{padding:0 4px 14px;}
+  }
+  .feed{
+    flex:1;display:flex;align-items:center;gap:10px;min-width:0;
+    background:#FFF8EC;border:1.5px solid #E6D6C0;border-radius:999px;
+    padding:8px 16px;font-size:12.5px;color:var(--ink-2);
+  }
+  .feed .tag{
+    font-size:10px;font-weight:700;color:#7A5A2E;background:#FFE6BB;
+    border:1px solid #E7C286;border-radius:999px;padding:2px 8px;flex:none;
+  }
+  .feed .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .quick{display:flex;gap:8px;}
+
+  .dicepair{display:flex;gap:6px;flex:none;}
+  .dice{
+    width:38px;height:38px;border-radius:10px;
+    background:linear-gradient(160deg,#FFFDF8,#EFE0C8);
+    border:2px solid #4A3325;
+    box-shadow:0 3px 0 #C9AE86,0 6px 12px rgba(74,51,37,.2);
+    display:grid;place-items:center;
+    font-family:Georgia,serif;font-size:17px;font-weight:700;color:var(--ink);
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26">
+        <path d="M13 2 L23 7.5 L23 18.5 L13 24 L3 18.5 L3 7.5 Z"
+              fill="#4A8B5C" stroke="#4A3325" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M13 8 L18 11 L18 16 L13 19 L8 16 L8 11 Z" fill="#FFF9F0" opacity=".85"/>
+      </svg>
+      <span class="name">六角拓荒</span>
+    </div>
+
+    <div class="room">
+      <span class="dot"></span>
+      房间 <b>A7K2M9</b>
+    </div>
+
+    <div class="topmid">
+      <div class="turnchip">
+        <div class="ava" style="--c:#C8503F">你</div>
+        <span>你的回合 · 第 7 回合</span>
+      </div>
+      <div class="draftflag">视觉稿 · 不可操作</div>
+    </div>
+
+    <div class="mobilebar">
+      <div class="mav" style="--c:#C8503F">你<i>7</i></div>
+      <div class="mav" style="--c:#4A7FB5">岚<i>5</i></div>
+      <div class="mav" style="--c:#EFEDE3;color:#6B5445">满<i>8</i></div>
+      <div class="mav" style="--c:#E8952F">周<i>4</i></div>
+    </div>
+
+    <button class="iconbtn" title="设置">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B5445" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+      </svg>
+    </button>
+  </header>
+
+  <main class="main">
+
+    <aside class="panel left">
+      <div class="panel-head">玩家</div>
+      <div class="players" id="players"></div>
+
+      <div class="sidebox">
+        <div class="row"><span>最长路</span><b>小满 · 6 条</b></div>
+        <div class="row"><span>最大军</span><b>阿岚 · 3 骑士</b></div>
+        <div class="row"><span>牌堆剩余</span><b>13 张</b></div>
+        <div class="row"><span>存牌风险</span><b style="color:#C8503F;">7 张以上需弃半</b></div>
+      </div>
+
+      <div class="panel-head" style="margin-top:12px;">最近动作</div>
+      <div class="log">
+        <div class="logitem"><span class="lt">刚刚</span><span>你 掷出 <b>8</b>，收 木2 麦3 矿1</span></div>
+        <div class="logitem"><span class="lt">1 分前</span><span>小满 建成 <b>城市</b>，升至 8 分</span></div>
+        <div class="logitem"><span class="lt">2 分前</span><span>老周 用 <b>1 砖</b> 换 阿岚 的 1 麦</span></div>
+        <div class="logitem"><span class="lt">3 分前</span><span>阿岚 打出 <b>骑士</b>，强盗移至 11 矿</span></div>
+      </div>
+    </aside>
+    <section class="table">
+      <svg id="board" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+    </section>
+
+    <aside class="panel right">
+      <div class="panel-head">发展卡</div>
+      <div class="devcards">
+        <div class="devcard"><b>骑士</b><span>3</span></div>
+        <div class="devcard"><b>胜利点</b><span>1</span></div>
+        <div class="devcard"><b>垄断</b><span class="zero">0</span></div>
+        <div class="devcard"><b>丰饶</b><span>1</span></div>
+      </div>
+
+      <div class="panel-head" style="margin-top:14px;">本局</div>
+      <div class="sidebox" style="margin:0 12px;">
+        <div class="row"><span>回合</span><b>第 7 回合</b></div>
+        <div class="row"><span>掷骰</span><b style="color:#C8503F;">尚未掷</b></div>
+        <div class="row"><span>手牌</span><b>6 张</b></div>
+      </div>
+
+      <div class="panel-head" style="margin-top:14px;">提示</div>
+      <div class="sidebox" style="margin:0 12px;">
+        <div style="font-size:11.5px;color:#8A7259;line-height:1.75;">
+          手牌 7 张以上，掷出 7 会弃掉一半（<b style="color:#C8503F;">向上取整</b>），弃哪几张由你自己选。
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <footer class="bottombar">
+    <div class="opbar">
+      <div class="dicepair">
+        <div class="dice" id="die1">5</div>
+        <div class="dice" id="die2">3</div>
+      </div>
+      <button class="btn primary" id="btn-roll" style="padding:11px 22px;">掷骰子</button>
+      <button class="btn ghost mini">建造</button>
+      <button class="btn ghost mini">交易</button>
+      <button class="btn ghost mini">结束回合</button>
+      <div class="feed">
+        <span class="tag">交易</span>
+        <span class="txt">小满 用 <b>1 砖</b> 换了 阿岚 的 <b>1 麦</b></span>
+      </div>
+    </div>
+    <div class="handrow" id="hand"></div>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var SIZE = 56, SQ3 = Math.sqrt(3);
+  var PAD  = 88;
+
+  var COLORS = { wood:"#4A8B5C", brick:"#B5603F", sheep:"#8FBB5E",
+                 wheat:"#E0AE43", ore:"#8C9298", desert:"#D4BD85" };
+  var NAMES  = { wood:"森林", brick:"丘陵", sheep:"牧场",
+                 wheat:"田地", ore:"山脉", desert:"沙漠" };
+  var SHORT  = { wood:"木", brick:"砖", sheep:"羊", wheat:"麦", ore:"矿", desert:"沙" };
+  var PIPS   = {2:1,3:2,4:3,5:4,6:5,8:5,9:4,10:3,11:2,12:1};
+
+  var ROWS = [3,4,5,4,3];
+  var DATA = {
+    "-2,0":["sheep",3],  "0,0":["ore",10],    "2,0":["wood",2],
+    "-3,1":["brick",9],  "-1,1":["wheat",12], "1,1":["wheat",6],  "3,1":["sheep",4],
+    "-4,2":["wood",5],   "-2,2":["ore",11],   "0,2":["desert",null], "2,2":["brick",5], "4,2":["sheep",9],
+    "-3,3":["wood",8],   "-1,3":["wheat",10], "1,3":["brick",8],  "3,3":["ore",4],
+    "-2,4":["sheep",11], "0,4":["wood",6],    "2,4":["wheat",3]
+  };
+
+  var PLAYERS = [
+    { name:"你",   initial:"你", color:"#C8503F", light:false, score:7, cards:5, active:true,
+      res:{wood:2,brick:1,sheep:0,wheat:3,ore:1} },
+    { name:"阿岚", initial:"岚", color:"#4A7FB5", light:false, score:5, cards:6, active:false,
+      res:{wood:1,brick:2,sheep:2,wheat:1,ore:0} },
+    { name:"小满", initial:"满", color:"#EFEDE3", light:true,  score:8, cards:3, active:false,
+      res:{wood:0,brick:1,sheep:1,wheat:1,ore:0} },
+    { name:"老周", initial:"周", color:"#E8952F", light:false, score:4, cards:7, active:false,
+      res:{wood:2,brick:0,sheep:3,wheat:1,ore:1} }
+  ];
+
+  // 建造物：路用同一地块的两个相邻角 c1/c2 定位
+  var BUILDS = [
+    { type:"city",    hex:"-2,2", corner:4, p:0 },
+    { type:"village", hex:"-1,3", corner:4, p:0 },
+    { type:"road",    hex:"-2,2", c1:4, c2:5, p:0 },
+    { type:"road",    hex:"-1,3", c1:4, c2:5, p:0 },
+    { type:"road",    hex:"-2,2", c1:3, c2:4, p:0 },
+
+    { type:"village", hex:"1,1",  corner:1, p:1 },
+    { type:"village", hex:"2,2",  corner:0, p:1 },
+    { type:"road",    hex:"2,2",  c1:5, c2:0, p:1 },
+    { type:"road",    hex:"1,1",  c1:1, c2:2, p:1 },
+
+    { type:"city",    hex:"-1,1", corner:5, p:2 },
+    { type:"village", hex:"0,0",  corner:2, p:2 },
+    { type:"road",    hex:"-1,1", c1:5, c2:0, p:2 },
+    { type:"road",    hex:"-1,1", c1:4, c2:5, p:2 },
+
+    { type:"village", hex:"1,3",  corner:1, p:3 },
+    { type:"village", hex:"0,4",  corner:1, p:3 },
+    { type:"road",    hex:"1,3",  c1:1, c2:2, p:3 },
+    { type:"road",    hex:"0,4",  c1:0, c2:1, p:3 }
+  ];
+
+  var TILES = [], TILE_MAP = {};
+  var verts = new Map(), edges = new Map();
+
+  (function build(){
+    var cy = (ROWS.length - 1) / 2;
+    ROWS.forEach(function(c, row){
+      var u0 = 1 - c;
+      for (var i=0;i<c;i++){
+        var u = u0 + i*2;
+        var t = { u:u, row:row, key:u+","+row,
+                  x: SIZE*SQ3*u/2, y: SIZE*1.5*(row-cy) };
+        TILES.push(t); TILE_MAP[t.key] = t;
+      }
+    });
+
+    TILES.forEach(function(t){
+      var cs = corners(t.x, t.y);
+      var vk = cs.map(function(c){
+        var k = Math.round(c.x)+","+Math.round(c.y);
+        if (!verts.has(k)) verts.set(k, { key:k, x:c.x, y:c.y });
+        return k;
+      });
+      for (var i=0;i<6;i++){
+        var a = vk[i], b = vk[(i+1)%6];
+        var ek = a<b ? a+"|"+b : b+"|"+a;
+        if (!edges.has(ek)) edges.set(ek, { key:ek, a:a, b:b, n:0 });
+        edges.get(ek).n++;
+      }
+    });
+  })();
+
+  function corners(cx, cy){
+    var out = [];
+    for (var i=0;i<6;i++){
+      var a = Math.PI/180 * (60*i - 30);
+      out.push({ x: cx + SIZE*Math.cos(a), y: cy + SIZE*Math.sin(a) });
+    }
+    return out;
+  }
+  function vkey(t, i){
+    var c = corners(t.x, t.y)[i];
+    return Math.round(c.x)+","+Math.round(c.y);
+  }
+
+  /** 水平正弦波路径，用于海面 */
+  function waveLine(x1, x2, y, amp, seg){
+    var d = 'M' + x1 + ',' + y;
+    var x = x1;
+    var up = true;
+    while (x < x2){
+      d += ' q' + (seg / 2) + ',' + (up ? -amp : amp) + ' ' + seg + ',0';
+      up = !up;
+      x += seg;
+    }
+    return d;
+  }
+
+  var svg = document.getElementById("board");
+
+  function pine(x, y, s){
+    return '<g transform="translate('+x+','+y+') scale('+s+')">'
+      + '<path d="M0,-17 L8,-5 L5,-5 L11,7 L-11,7 L-5,-5 L-8,-5 Z" fill="#1F5636" stroke="#123A22" stroke-width="1.3" stroke-linejoin="round"/>'
+      + '<path d="M0,-17 L3.4,-10.5 L0,-8.5 L-3.4,-10.5 Z" fill="#2F7048"/>'
+      + '<rect x="-1.6" y="7" width="3.2" height="4.5" rx=".8" fill="#3E2A1A"/>'
+      + '</g>';
+  }
+  function grassTuft(x, y){
+    return '<path d="M'+x+','+y+' l-2.5,-6 M'+x+','+y+' l0,-7 M'+x+','+y+' l2.5,-6" '
+      + 'stroke="#3B7A4C" stroke-width="1.5" stroke-linecap="round" fill="none"/>';
+  }
+  function brickStack(x, y, s){
+    return '<g transform="translate('+x+','+y+') scale('+(s*1.18)+')" stroke="#6E3018" stroke-width="1.3" stroke-linejoin="round">'
+      + '<rect x="-10" y="2" width="9.5" height="6.4" rx="1.2" fill="#D4805A" transform="rotate(-8)"/>'
+      + '<rect x="1.5" y="2.5" width="9.5" height="6.4" rx="1.2" fill="#C06F4A" transform="rotate(6)"/>'
+      + '<rect x="-4.5" y="-6" width="9.5" height="6.4" rx="1.2" fill="#E0906A" transform="rotate(-3)"/>'
+      + '<path d="M-7.5,1.6 L-7.5,5 M-1,3 L-1,6.6 M5,1.5 L5,5.4" stroke="#8E4020" stroke-width="1" opacity=".7"/>'
+      + '</g>';
+  }
+  function sheep(x, y, s, flip){
+    var f = flip ? -1 : 1;
+    return '<g transform="translate('+x+','+y+') scale('+(s*f)+','+s+')">'
+      + '<ellipse cx="0" cy="0" rx="8" ry="5.8" fill="#FBFDF6" stroke="#BFC7B6" stroke-width=".9"/>'
+      + '<circle cx="-5" cy="-3" r="4" fill="#FBFDF6" stroke="#BFC7B6" stroke-width=".9"/>'
+      + '<circle cx="4" cy="-4" r="4.4" fill="#FBFDF6" stroke="#BFC7B6" stroke-width=".9"/>'
+      + '<circle cx="5.5" cy="1.5" r="3.6" fill="#FBFDF6" stroke="#BFC7B6" stroke-width=".9"/>'
+      + '<ellipse cx="10" cy="-1.5" rx="3.2" ry="2.8" fill="#4A4040"/>'
+      + '<path d="M-3,5 L-3,9 M2.5,5 L2.5,9" stroke="#4A4040" stroke-width="1.5" stroke-linecap="round"/>'
+      + '</g>';
+  }
+  function wheatStalk(x, y, s){
+    return '<g transform="translate('+x+','+y+') scale('+s+')" stroke="#6E4408" stroke-width="1.9" stroke-linecap="round" fill="none">'
+      + '<path d="M0,12 L0,-14"/>'
+      + '<path d="M0,-3 L-5,-7.5 M0,-3 L5,-7.5"/>'
+      + '<path d="M0,-7.5 L-5,-12 M0,-7.5 L5,-12"/>'
+      + '<path d="M0,-11.5 L-3.5,-15 M0,-11.5 L3.5,-15"/>'
+      + '</g>';
+  }
+  function mountain(x, y, s){
+    return '<g transform="translate('+x+','+y+') scale('+s+')">'
+      + '<path d="M-16,11 L-2,-14 L12,11 Z" fill="#6A7178" stroke="#2E353D" stroke-width="1.5" stroke-linejoin="round"/>'
+      + '<path d="M-2,-14 L-7.5,-4.5 L-2.5,-6.5 L1.5,-3.8 L-2,-14 Z" fill="#EDF2F6"/>'
+      + '<path d="M5,11 L14,-4 L23,11 Z" fill="#525A62" stroke="#2E353D" stroke-width="1.5" stroke-linejoin="round"/>'
+      + '<path d="M14,-4 L10,2.5 L14,1 L16.5,3.4 L14,-4 Z" fill="#DDE5EB"/>'
+      + '<path d="M-14,11 L-9,4 L-4,11 Z" fill="#5A6268" stroke="#2E353D" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '</g>';
+  }
+  function cactus(x, y, s){
+    return '<g transform="translate('+x+','+y+') scale('+s+')" fill="#6E8F4E" stroke="#4A6632" stroke-width="1.2" stroke-linejoin="round">'
+      + '<rect x="-2.6" y="-13" width="5.2" height="21" rx="2.6"/>'
+      + '<path d="M-2.6,-6 L-8,-6 Q-10,-6 -10,-8 L-10,-11" fill="none" stroke-width="3.4" stroke-linecap="round"/>'
+      + '<path d="M2.6,-9 L7,-9 Q9,-9 9,-7 L9,-4" fill="none" stroke-width="3.4" stroke-linecap="round"/>'
+      + '</g>';
+  }
+  function smallStone(x, y, s){
+    return '<ellipse cx="'+x+'" cy="'+y+'" rx="'+(4*s)+'" ry="'+(2.6*s)+'" fill="#9A8560" opacity=".5"/>';
+  }
+
+  /** 每个地块的场景装饰：围绕中央数字圆片布置 */
+  function terrainDecor(kind, cx, cy){
+    var g = '<g transform="translate('+cx+','+cy+')">';
+    if (kind === 'wood'){
+      g += pine(-22, 0, 0.9);
+      g += pine(16, -14, 0.74);
+      g += pine(-4, -32, 0.64);
+      g += pine(24, 12, 0.58);
+      g += grassTuft(-26, 26);
+      g += grassTuft(18, 29);
+      g += grassTuft(1, 35);
+      g += grassTuft(30, -6);
+    } else if (kind === 'brick'){
+      g += brickStack(-21, -18, 0.92);
+      g += brickStack(15, 4, 0.82);
+      g += brickStack(-10, 22, 0.62);
+      g += '<path d="M-28,-2 q8,-6 16,-1 t16,0" stroke="#8E4A31" stroke-width="1.6" fill="none" opacity=".4"/>';
+      g += smallStone(24, 24, 0.9);
+    } else if (kind === 'sheep'){
+      g += sheep(-21, -16, 0.8, false);
+      g += sheep(14, -26, 0.66, true);
+      g += sheep(21, 16, 0.72, false);
+      g += sheep(-17, 22, 0.58, true);
+      g += grassTuft(-28, 6);
+      g += grassTuft(2, 32);
+      g += grassTuft(28, -4);
+      g += '<circle cx="-26" cy="-28" r="1.9" fill="#F0D45A"/>';
+      g += '<circle cx="27" cy="26" r="1.6" fill="#F0D45A"/>';
+    } else if (kind === 'wheat'){
+      g += wheatStalk(-20, -12, 0.92);
+      g += wheatStalk(17, -8, 0.85);
+      g += wheatStalk(-5, -30, 0.74);
+      g += wheatStalk(25, 17, 0.7);
+      g += wheatStalk(-24, 12, 0.66);
+      g += '<g stroke="#B8871E" stroke-width="1.3" opacity=".45">'
+        + '<path d="M-28,32 L-14,32 M-6,34 L10,34 M16,32 L30,32 M-18,-2 L-6,-2"/></g>';
+    } else if (kind === 'ore'){
+      g += mountain(-15, -5, 0.9);
+      g += mountain(15, 6, 0.66);
+      g += mountain(-25, 14, 0.48);
+      g += smallStone(-8, 30, 1);
+      g += smallStone(25, 27, 0.8);
+      g += '<path d="M-2,29 l2.6,-4.5 l2.6,4.5 Z" fill="#4C535A" opacity=".6"/>';
+    } else if (kind === 'desert'){
+      g += cactus(19, -12, 0.86);
+      g += '<path d="M-28,-2 q9,-9 18,0 t18,0" stroke="#B59A5E" stroke-width="1.8" fill="none" opacity=".7"/>';
+      g += '<path d="M-24,16 q9,-9 18,0 t18,0" stroke="#C4A96C" stroke-width="1.8" fill="none" opacity=".6"/>';
+      g += smallStone(-22, 27, 1);
+      g += smallStone(3, 31, 0.7);
+      g += smallStone(-6, -30, 0.6);
+    }
+    return g + '</g>';
+  }
+
+  function house(x, y, p, city){
+    var col = PLAYERS[p].color;
+    var edge = PLAYERS[p].light ? "#4A3325" : "#3A2418";
+    var w = city ? 28 : 21, h = city ? 21 : 15;
+    var roofH = city ? 14 : 10.5;
+    var g = '<g transform="translate('+x+','+y+')" filter="url(#soft)">';
+    if (city){
+      g += '<rect x="'+(-w/2+7)+'" y="'+(-h-roofH-6)+'" width="8" height="'+(roofH+8)+'" rx="1.5" fill="'+col+'" stroke="'+edge+'" stroke-width="1.8"/>';
+      g += '<path d="M'+(-w/2+6)+' '+(-h-roofH-6)+' L'+(-w/2+11)+' '+(-h-roofH-12)+' L'+(-w/2+16)+' '+(-h-roofH-6)+' Z" fill="'+col+'" stroke="'+edge+'" stroke-width="1.8" stroke-linejoin="round"/>';
+    }
+    g += '<rect x="'+(-w/2)+'" y="'+(-h)+'" width="'+w+'" height="'+h+'" rx="2" fill="'+col+'" stroke="'+edge+'" stroke-width="1.9"/>';
+    g += '<path d="M'+(-w/2-2)+' '+(-h)+' L0 '+(-h-roofH)+' L'+(w/2+2)+' '+(-h)+' Z" fill="'+col+'" stroke="'+edge+'" stroke-width="1.9" stroke-linejoin="round"/>';
+    g += '<rect x="'+(-2.5)+'" y="'+(-h/2-1)+'" width="5" height="'+(h/2+1)+'" rx="1" fill="'+(PLAYERS[p].light ? "#C9B79B" : "#FFF1DC")+'" opacity=".85"/>';
+    return g + '</g>';
+  }
+
+  function road(x1,y1,x2,y2,p){
+    var col = PLAYERS[p].color;
+    var edge = PLAYERS[p].light ? "#4A3325" : "#3A2418";
+    return '<g filter="url(#soft)">'
+      + '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+edge+'" stroke-width="7" stroke-linecap="round" opacity=".85"/>'
+      + '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+col+'" stroke-width="4.6" stroke-linecap="round"/>'
+      + '<line x1="'+x1+'" y1="'+(y1-0.8)+'" x2="'+x2+'" y2="'+(y2-0.8)+'" stroke="#fff" stroke-width="1.1" stroke-linecap="round" opacity=".22"/>'
+      + '</g>';
+  }
+
+  function render(){
+    var minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+    verts.forEach(function(v){
+      if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y;
+      if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y;
+    });
+    svg.setAttribute("viewBox",(minX-PAD)+" "+(minY-PAD)+" "+(maxX-minX+PAD*2)+" "+(maxY-minY+PAD*2));
+
+    var o = [];
+    o.push('<defs>'
+      + '<filter id="soft" x="-80%" y="-80%" width="260%" height="260%">'
+      + '<feDropShadow dx="0" dy="2.5" stdDeviation="2.2" flood-color="#3A2418" flood-opacity=".34"/>'
+      + '</filter>'
+      + '<filter id="island" x="-25%" y="-25%" width="150%" height="150%">'
+      + '<feDropShadow dx="0" dy="13" stdDeviation="15" flood-color="#04141C" flood-opacity=".58"/>'
+      + '</filter>'
+      + '<filter id="softblur"><feGaussianBlur stdDeviation="7"/></filter>'
+      + '<radialGradient id="vignette" cx="50%" cy="50%" r="62%">'
+      + '<stop offset="52%" stop-color="#000" stop-opacity="0"/>'
+      + '<stop offset="100%" stop-color="#000" stop-opacity=".24"/>'
+      + '</radialGradient>'
+      + '<pattern id="grain" width="9" height="9" patternUnits="userSpaceOnUse">'
+      + '<circle cx="2" cy="3" r="1" fill="#000" opacity=".055"/>'
+      + '<circle cx="6.5" cy="7" r=".8" fill="#fff" opacity=".075"/>'
+      + '</pattern>'
+      + '</defs>');
+
+    // 海面波纹（画在浅滩之下）
+    var wx1 = minX - PAD * 3, wx2 = maxX + PAD * 3;
+    var wy1 = minY - PAD * 3, wy2 = maxY + PAD * 3;
+    var icx = (minX + maxX) / 2, icy = (minY + maxY) / 2;
+
+    o.push('<g>');
+    o.push('<ellipse cx="'+icx+'" cy="'+(wy1 + 90)+'" rx="'+((wx2 - wx1) * 0.34)+'" ry="96" fill="#CFEFFA" opacity=".045"/>');
+    for (var i = 0; i < 18; i++) {
+      var wy = wy1 + ((wy2 - wy1) * (i + 0.5)) / 18;
+      var amp = 2.6 + (i % 3) * 1.5;
+      var seg = 42 + (i % 2) * 18;
+      o.push('<path d="' + waveLine(wx1, wx2, wy, amp, seg) + '" fill="none" '
+        + 'stroke="#D2F0FB" stroke-width="1.6" opacity="' + (0.085 + (i % 3) * 0.032).toFixed(3) + '"/>');
+    }
+    // 岛屿周围的水波圈
+    var irx = (maxX - minX) / 2 + 22;
+    var iry = (maxY - minY) / 2 + 22;
+    for (var k = 0; k < 4; k++) {
+      o.push('<ellipse cx="'+icx+'" cy="'+icy+'" rx="'+(irx + k * 26)+'" ry="'+(iry + k * 20)+'" '
+        + 'fill="none" stroke="#DCF4FC" stroke-width="1.6" '
+        + 'opacity="' + (0.22 - k * 0.048).toFixed(3) + '" '
+        + 'stroke-dasharray="' + (10 + k * 5) + ' ' + (16 + k * 6) + '"/>');
+    }
+    o.push('</g>');
+
+    // 浅滩
+    o.push('<g opacity=".40" filter="url(#softblur)">');
+    TILES.forEach(function(t){
+      var pts = corners(t.x,t.y).map(function(c){
+        return (t.x+(c.x-t.x)*1.36)+","+(t.y+(c.y-t.y)*1.36);
+      }).join(" ");
+      o.push('<polygon points="'+pts+'" fill="#63BAD0"/>');
+    });
+    o.push('</g>');
+
+    // 岛屿底板
+    o.push('<g filter="url(#island)">');
+    TILES.forEach(function(t){
+      var pts = corners(t.x,t.y).map(function(c){
+        return (t.x+(c.x-t.x)*1.16)+","+(t.y+(c.y-t.y)*1.16);
+      }).join(" ");
+      o.push('<polygon points="'+pts+'" fill="#E6D3A8"/>');
+    });
+    o.push('</g>');
+
+    // 地块
+    o.push('<g>');
+    TILES.forEach(function(t){
+      var d = DATA[t.key], kind = d[0], num = d[1];
+      var delay = Math.round(Math.hypot(t.x, t.y) * 0.55);
+      o.push('<g class="tile" data-key="'+t.key+'" data-kind="'+kind+'" data-num="'+(num===null?"":num)+'" style="animation-delay:'+delay+'ms">');
+      var pts = corners(t.x,t.y).map(function(c){
+        return (t.x+(c.x-t.x)*1.0)+","+(t.y+(c.y-t.y)*1.0);
+      }).join(" ");
+      o.push('<polygon points="'+pts+'" fill="'+COLORS[kind]+'" stroke="#3A2418" stroke-width="2.2" stroke-linejoin="round"/>');
+      o.push('<polygon points="'+pts+'" fill="url(#grain)"/>');
+      o.push('<polygon points="'+pts+'" fill="url(#vignette)"/>');
+      o.push(terrainDecor(kind, t.x, t.y - 4));
+
+      if (num !== null){
+        var hot = (num===6||num===8);
+        o.push('<g filter="url(#soft)">');
+        o.push('<circle cx="'+t.x+'" cy="'+(t.y+3)+'" r="18.4" fill="#FFF9F0" stroke="#3A2418" stroke-width="2"/>');
+        o.push('</g>');
+        o.push('<text x="'+t.x+'" y="'+(t.y+1)+'" font-size="19" font-weight="700" '
+             + 'fill="'+(hot?"#C8503F":"#3A2418")+'" text-anchor="middle" dominant-baseline="central" '
+             + 'font-family="Georgia,serif">'+num+'</text>');
+        var n = PIPS[num], gap = 4.4, tw = (n-1)*gap;
+        for (var i=0;i<n;i++){
+          o.push('<circle cx="'+(t.x-tw/2+i*gap)+'" cy="'+(t.y+14.5)+'" r="1.35" fill="'+(hot?"#C8503F":"#5A4033")+'"/>');
+        }
+      }
+      o.push('</g>');
+    });
+    o.push('</g>');
+
+    // 港口
+    var boundary = [];
+    edges.forEach(function(e){ if (e.n === 1) boundary.push(e); });
+    boundary.sort(function(p,q){
+      var va=verts.get(p.a), vb=verts.get(q.a);
+      return Math.atan2((va.y+verts.get(p.b).y)/2,(va.x+verts.get(p.b).x)/2)
+           - Math.atan2((vb.y+verts.get(q.b).y)/2,(vb.x+verts.get(q.b).x)/2);
+    });
+    var PORTS = ["3","2w","3","2b","3","2s","3","2W","2o"];
+    var RESC = { w:"wood", b:"brick", s:"sheep", W:"wheat", o:"ore" };
+
+    o.push('<g>');
+    for (var k=0;k<9;k++){
+      var e = boundary[Math.round(k*boundary.length/9) % boundary.length];
+      var va = verts.get(e.a), vb = verts.get(e.b);
+      var mx = (va.x+vb.x)/2, my = (va.y+vb.y)/2;
+      var dx = mx, dy = my, len = Math.hypot(dx,dy)||1;
+      var nx = dx/len, ny = dy/len;
+      var px = mx+nx*36, py = my+ny*36;
+      var hx = -ny, hy = nx;
+
+      o.push('<path d="M'+(mx+nx*6+hx*11)+','+(my+ny*6+hy*11)
+           + ' L'+(mx+nx*22)+','+(my+ny*22)
+           + ' L'+(mx+nx*6-hx*11)+','+(my+ny*6-hy*11)+'" fill="none" stroke="#7A5A34" stroke-width="4" stroke-linecap="round"/>');
+
+      var code = PORTS[k];
+      o.push('<g filter="url(#soft)">');
+      o.push('<rect x="'+(px-27)+'" y="'+(py-13)+'" width="54" height="26" rx="7" fill="#FFF6E4" stroke="#3A2418" stroke-width="2"/>');
+      o.push('</g>');
+      if (code.length > 1){
+        o.push('<rect x="'+(px-22)+'" y="'+(py-7)+'" width="14" height="14" rx="4" fill="'+COLORS[RESC[code[1]]]+'" stroke="#3A2418" stroke-width="1.6"/>');
+        o.push('<text x="'+(px+7)+'" y="'+py+'" font-size="13" font-weight="700" fill="#3A2418" text-anchor="middle" dominant-baseline="central" font-family="Georgia,serif">2:1</text>');
+      } else {
+        o.push('<text x="'+px+'" y="'+py+'" font-size="13" font-weight="700" fill="#3A2418" text-anchor="middle" dominant-baseline="central" font-family="Georgia,serif">3:1</text>');
+      }
+    }
+    o.push('</g>');
+
+    // 建造物：先路，后房子
+    o.push('<g>');
+    BUILDS.forEach(function(b){
+      if (b.type !== "road") return;
+      var t = TILE_MAP[b.hex];
+      var cs = corners(t.x, t.y);
+      o.push(road(cs[b.c1].x, cs[b.c1].y, cs[b.c2].x, cs[b.c2].y, b.p));
+    });
+    o.push('</g>');
+
+    o.push('<g>');
+    BUILDS.forEach(function(b){
+      if (b.type === "road") return;
+      var t = TILE_MAP[b.hex];
+      var cs = corners(t.x, t.y);
+      o.push(house(cs[b.corner].x, cs[b.corner].y, b.p, b.type === "city"));
+    });
+    o.push('</g>');
+
+    // 强盗
+    var desert = TILES.filter(function(t){ return DATA[t.key][0] === "desert"; })[0];
+    if (desert){
+      o.push('<g transform="translate('+desert.x+','+(desert.y+2)+') scale(1.15)" filter="url(#soft)">');
+      o.push('<ellipse cx="0" cy="16" rx="11" ry="3" fill="#2A1A0E" opacity=".3"/>');
+      o.push('<path d="M-10,14 L-8.5,-1 Q-7.5,-7 -3.5,-8 L-2.8,-11 A4.8,4.8 0 1 1 2.8,-11 L3.5,-8 Q7.5,-7 8.5,-1 L10,14 Z" fill="#241C17" stroke="#0F0A07" stroke-width="1.2" stroke-linejoin="round"/>');
+      o.push('<ellipse cx="0" cy="-15" rx="8.4" ry="2.4" fill="#15100C"/>');
+      o.push('<circle cx="-2.1" cy="-11.6" r="1.05" fill="#C8503F"/>');
+      o.push('<circle cx="2.1" cy="-11.6" r="1.05" fill="#C8503F"/>');
+      o.push('</g>');
+    }
+
+    svg.innerHTML = o.join("");
+
+    var host = svg.parentElement;
+    if (host) {
+      var w = host.clientWidth || 600;
+      var h = host.clientHeight || 600;
+      svg.setAttribute("width", w);
+      svg.setAttribute("height", h);
+    }
+  }
+
+  function renderPanels(){
+    var host = document.getElementById("players");
+    host.innerHTML = PLAYERS.map(function(p){
+      var bars = "";
+      for (var i=0;i<10;i++) bars += '<i class="'+((i < p.score) ? "on" : "")+'"></i>';
+      return ''
+        + '<div class="player'+(p.active?" active":"")+'">'
+        +   '<div class="ava'+(p.light?" light":"")+'" style="--c:'+p.color+'">'+p.initial+'</div>'
+        +   '<div class="pinfo">'
+        +     '<div class="pname">'+p.name+(p.active?'<span class="flag">当前</span>':'')+'</div>'
+        +     '<div class="pmeta">手牌 '+p.cards+' 张</div>'
+        +     '<div class="ptrack" style="--c:'+p.color+'">'+bars+'</div>'
+        +   '</div>'
+        +   '<div class="pscore">'+p.score+'<small>分</small></div>'
+        + '</div>';
+    }).join("");
+
+    var me = PLAYERS[0];
+    var order = ["wood","brick","sheep","wheat","ore"];
+    var cnt = order.length;
+    document.getElementById("hand").innerHTML = order.map(function(k, i){
+      var off = i - (cnt - 1) / 2;
+      var rot = (off * 5.5).toFixed(1);
+      var lift = Math.abs(off) * 5;
+      return ''
+        + '<div class="card'+(me.res[k] === 0 ? ' empty' : '')+'" '
+        +   'style="--rot:'+rot+'deg;--lift:'+lift+'px;animation-delay:'+(i*60)+'ms">'
+        +   '<div class="cband'+(k==="wheat"?" light":"")+'" style="background:'+COLORS[k]+'">'+SHORT[k]+'</div>'
+        +   '<div class="cnum">'+me.res[k]+'</div>'
+        +   '<div class="cname">'+NAMES[k]+'</div>'
+        + '</div>';
+    }).join("");
+  }
+
+  var btnRoll = document.getElementById('btn-roll');
+  var die1 = document.getElementById('die1');
+  var die2 = document.getElementById('die2');
+  if (btnRoll && die1 && die2){
+    btnRoll.addEventListener('click', function(){
+      [die1, die2].forEach(function(d){
+        d.classList.remove('rolling');
+        void d.offsetWidth;
+        d.classList.add('rolling');
+      });
+      var ticks = 0;
+      var timer = setInterval(function(){
+        die1.textContent = 1 + Math.floor(Math.random() * 6);
+        die2.textContent = 1 + Math.floor(Math.random() * 6);
+        if (++ticks >= 10) clearInterval(timer);
+      }, 65);
+    });
+  }
+
+  render();
+  renderPanels();
+})();
+</script>
+</body>
+</html>

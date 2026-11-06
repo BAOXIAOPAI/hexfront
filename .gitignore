@@ -1,0 +1,7 @@
+# 依赖与本机噪声：不纳入版本控制
+node_modules/
+.DS_Store
+*.log
+
+# 说明：apps/web/dist、apps/server/dist/public、release/ 故意保留在基线里，
+# 用来核对「源码 ↔ 构建产物」是否同步（重构指南阶段 A）。

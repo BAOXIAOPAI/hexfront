@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卡坦地图 · 尺寸对比</title>
+<style>
+  :root{
+    --sand:#e3d0a2;
+    --paper:#f5edd9;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:radial-gradient(circle at 50% 15%, #1e4254 0%, #122c37 45%, #07141a 100%);
+    font-family:-apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color:#dbe8ec;
+    display:flex;flex-direction:column;min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{padding:16px 26px 4px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  h1{font-size:15px;margin:0;letter-spacing:.08em;font-weight:600;color:#eaf4f7;}
+  .sub{font-size:12px;color:#6f93a1;}
+  .toolbar{padding:2px 26px 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .group{display:flex;gap:0;border:1px solid rgba(255,255,255,.13);border-radius:7px;overflow:hidden;}
+  .group button{border:none;border-radius:0;border-right:1px solid rgba(255,255,255,.1);}
+  .group button:last-child{border-right:none;}
+  button{
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.13);
+    color:#c9dde4;font-size:12px;padding:6px 13px;
+    border-radius:6px;cursor:pointer;font-family:inherit;
+    transition:background .15s,border-color .15s;
+  }
+  button:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.26);}
+  button.on{background:#2f6e83;border-color:#57a3bb;color:#f0fafd;}
+  .sep{width:1px;height:20px;background:rgba(255,255,255,.12);margin:0 4px;}
+  #stage{flex:1;display:flex;align-items:center;justify-content:center;padding:0 10px;}
+  svg{width:100%;height:auto;max-height:74vh;display:block;}
+  .tile{cursor:pointer;}
+  .tile:hover .tile-shape{filter:brightness(1.14);}
+  .tile-shape{stroke:#07131a;stroke-width:2.4;stroke-linejoin:round;}
+  .num-circle{fill:var(--paper);stroke:#07131a;stroke-width:1.3;}
+  .num-text{font-size:25px;font-weight:700;fill:#1b1b1b;text-anchor:middle;dominant-baseline:central;}
+  .num-text.hot{fill:#a8271c;}
+  .pip{fill:#333;}
+  .vtx{fill:#eaf6fa;opacity:0;transition:opacity .18s;pointer-events:none;}
+  .vtx.on{opacity:.8;}
+  .edg{stroke:#eaf6fa;stroke-width:2.5;opacity:0;transition:opacity .18s;pointer-events:none;}
+  .edg.on{opacity:.45;}
+  .port-line{stroke:#8a6a45;stroke-width:3.5;stroke-linecap:round;}
+  .port-box{fill:#e8d9b6;stroke:#07131a;stroke-width:1.3;}
+  .port-txt{font-size:15px;font-weight:700;fill:#1b1b1b;text-anchor:middle;dominant-baseline:central;}
+  .tip{
+    position:fixed;pointer-events:none;z-index:9;
+    background:rgba(6,18,24,.95);border:1px solid rgba(255,255,255,.16);
+    border-radius:6px;padding:6px 11px;font-size:12px;line-height:1.6;
+    opacity:0;transition:opacity .12s;white-space:nowrap;
+  }
+  .tip b{color:#fff;font-weight:600;}
+  footer{padding:4px 26px 14px;font-size:11px;color:#5f8090;display:flex;gap:16px;flex-wrap:wrap;}
+  footer span{white-space:nowrap;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#9ec4d2;}
+  .warn{color:#c9a86a;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>卡坦地图 · 尺寸对比</h1>
+  <div class="sub" id="subtitle">—</div>
+</header>
+
+<div class="toolbar">
+  <div class="group" id="size-group">
+    <button data-size="4" class="on">4 人 · 19 格</button>
+    <button data-size="6">5-6 人 · 30 格</button>
+    <button data-size="8">7-8 人 · 37 格</button>
+  </div>
+  <span class="sep"></span>
+  <button id="btn-reroll">重新随机</button>
+  <button id="btn-standard">恢复固定布局</button>
+  <span class="sep"></span>
+  <button id="btn-verts">显示顶点</button>
+  <button id="btn-edges">显示边</button>
+  <button id="btn-ports" class="on">显示港口</button>
+</div>
+
+<div id="stage">
+  <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+
+<footer id="stats"></footer>
+<div class="tip" id="tip"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var SIZE = 62;
+  var SQ3  = Math.sqrt(3);
+  var PAD  = 112;
+
+  var COLORS = {
+    wood:"#2f6b45", brick:"#b05236", sheep:"#83b45c",
+    wheat:"#dfa93c", ore:"#8b9095", desert:"#d8c391"
+  };
+  var NAMES = {
+    wood:"森林", brick:"丘陵", sheep:"牧场",
+    wheat:"田地", ore:"山脉", desert:"沙漠"
+  };
+  var PIPS = {2:1,3:2,4:3,5:4,6:5,8:5,9:4,10:3,11:2,12:1};
+
+  /* ================= 地图规格 ================= */
+  /* rows: 每行地块数；res: 资源数量；nums: 数字片数量
+     4 人 / 5-6 人为官方配比，7-8 人为按比例外推的自定义配比 */
+  var MAPS = {
+    "4": {
+      label: "4 人 · 19 格",
+      note: "官方基础版",
+      rows: [3,4,5,4,3],
+      res:  { wood:4, brick:3, sheep:4, wheat:4, ore:3, desert:1 },
+      nums: { 2:1, 3:2, 4:2, 5:2, 6:2, 8:2, 9:2, 10:2, 11:2, 12:1 },
+      ports: ["3","2w","3","2b","3","2s","3","2W","2o"]
+    },
+    "6": {
+      label: "5-6 人 · 30 格",
+      note: "官方 5-6 人扩展",
+      rows: [3,4,5,6,5,4,3],
+      res:  { wood:6, brick:5, sheep:6, wheat:6, ore:5, desert:2 },
+      nums: { 2:2, 3:3, 4:3, 5:3, 6:3, 8:3, 9:3, 10:3, 11:3, 12:2 },
+      ports: ["3","2w","3","2b","3","2s","3","2W","3","2o","2s"]
+    },
+    "8": {
+      label: "7-8 人 · 37 格",
+      note: "无官方版本，配比按比例外推",
+      rows: [4,5,6,7,6,5,4],
+      res:  { wood:8, brick:6, sheep:7, wheat:7, ore:6, desert:3 },
+      nums: { 2:3, 3:3, 4:3, 5:4, 6:4, 8:4, 9:4, 10:3, 11:3, 12:3 },
+      ports: ["3","2w","3","2b","3","2s","3","2W","3","2o","3","2s","2w"]
+    }
+  };
+
+  var PORT_CODES = { "3":{ratio:3,res:null}, "2w":{ratio:2,res:"wood"}, "2b":{ratio:2,res:"brick"},
+                     "2s":{ratio:2,res:"sheep"}, "2W":{ratio:2,res:"wheat"}, "2o":{ratio:2,res:"ore"} };
+
+  /* ================= 几何构建 ================= */
+  /* 用 (u, row) 表示：x = SIZE*√3*u/2 ，y = SIZE*1.5*(row - center)
+     u 的奇偶随行交替，天然形成半格错位。
+     同一行内相邻地块 u 差 2；相邻行 u 差 1。 */
+
+  var TILES = [];
+  var TILE_MAP = {};
+  var verts = new Map();
+  var edges = new Map();
+  var CUR = null;
+
+  function buildGeometry(sizeKey){
+    var spec = MAPS[sizeKey];
+    CUR = spec;
+    TILES = []; TILE_MAP = {};
+    verts = new Map(); edges = new Map();
+
+    var n = spec.rows.length;
+    var cy = (n - 1) / 2;
+
+    spec.rows.forEach(function(c, row){
+      var u0 = 1 - c;                       // 让整行水平居中
+      for (var i=0;i<c;i++){
+        var u = u0 + i*2;
+        var x = SIZE * SQ3 * u / 2;
+        var y = SIZE * 1.5 * (row - cy);
+        var t = { u:u, row:row, key:u+","+row, x:x, y:y };
+        TILES.push(t);
+        TILE_MAP[t.key] = t;
+      }
+    });
+
+    // 顶点与边：以像素坐标取整去重
+    TILES.forEach(function(t){
+      var cs = corners(t.x, t.y);
+      var vkeys = cs.map(function(c){
+        var k = Math.round(c.x) + "," + Math.round(c.y);
+        if (!verts.has(k)) verts.set(k, { key:k, x:c.x, y:c.y, tiles:[] });
+        verts.get(k).tiles.push(t.key);
+        return k;
+      });
+      for (var i=0;i<6;i++){
+        var a = vkeys[i], b = vkeys[(i+1)%6];
+        var ek = a < b ? a+"|"+b : b+"|"+a;
+        if (!edges.has(ek)){
+          var va = verts.get(a), vb = verts.get(b);
+          edges.set(ek, { key:ek, a:a, b:b, ax:va.x, ay:va.y, bx:vb.x, by:vb.y,
+                          mx:(va.x+vb.x)/2, my:(va.y+vb.y)/2, tiles:[] });
+        }
+        edges.get(ek).tiles.push(t.key);
+      }
+    });
+  }
+
+  function corners(cx, cy){
+    var pts = [];
+    for (var i=0;i<6;i++){
+      var a = Math.PI/180 * (60*i - 30);
+      pts.push({ x: cx + SIZE*Math.cos(a), y: cy + SIZE*Math.sin(a) });
+    }
+    return pts;
+  }
+
+  function neighborKeys(t){
+    var d = [[2,0],[-2,0],[1,-1],[-1,-1],[1,1],[-1,1]];
+    var out = [];
+    for (var i=0;i<6;i++) out.push((t.u+d[i][0]) + "," + (t.row+d[i][1]));
+    return out;
+  }
+
+  /* ================= 布局生成 ================= */
+  function shuffle(a){
+    for (var i=a.length-1;i>0;i--){
+      var j = Math.floor(Math.random()*(i+1));
+      var t=a[i]; a[i]=a[j]; a[j]=t;
+    }
+    return a;
+  }
+
+  function resPool(){
+    var pool = [];
+    for (var k in CUR.res){
+      for (var i=0;i<CUR.res[k];i++) pool.push(k);
+    }
+    return pool;
+  }
+
+  function numPool(){
+    var out = [];
+    for (var k in CUR.nums){
+      for (var i=0;i<CUR.nums[k];i++) out.push(+k);
+    }
+    return out;
+  }
+
+  function badLayout(assign){
+    var deserts = [];
+    for (var i=0;i<TILES.length;i++){
+      var t = TILES[i];
+      var v = assign[t.key];
+      if (v[0] === "desert"){ deserts.push(t); continue; }
+      var self = v[1];
+      if (self !== 6 && self !== 8) continue;
+      var ns = neighborKeys(t);
+      for (var j=0;j<ns.length;j++){
+        var d = assign[ns[j]];
+        if (!d) continue;
+        if ((d[1]===6 || d[1]===8) && d[1] !== self) return true;
+      }
+    }
+    // 沙漠之间不互相接壤（更接近实体的两端分布）
+    for (var a=0;a<deserts.length;a++){
+      var dn = neighborKeys(deserts[a]);
+      for (var b=0;b<dn.length;b++){
+        var dd = assign[dn[b]];
+        if (dd && dd[0] === "desert") return true;
+      }
+    }
+    return false;
+  }
+
+  function makeRandom(){
+    var pool = resPool(), nums = numPool();
+    var assign, tries = 0;
+    do {
+      assign = {};
+      var res = shuffle(pool.slice());
+      var ns  = shuffle(nums.slice());
+      var ni = 0;
+      TILES.forEach(function(t, i){
+        var r = res[i];
+        assign[t.key] = [ r, r === "desert" ? null : ns[ni++] ];
+      });
+      tries++;
+    } while (badLayout(assign) && tries < 500);
+    return assign;
+  }
+
+  // 4 人固定布局（配比严格合法）
+  var STANDARD_4 = {
+    "-2,0":["sheep",3],  "0,0":["ore",10],    "2,0":["wood",2],
+    "-3,1":["brick",9],  "-1,1":["wheat",12], "1,1":["wheat",6],  "3,1":["sheep",4],
+    "-4,2":["wood",5],   "-2,2":["ore",11],   "0,2":["desert",null], "2,2":["brick",5], "4,2":["sheep",9],
+    "-3,3":["wood",8],   "-1,3":["wheat",10], "1,3":["brick",8],  "3,3":["ore",4],
+    "-2,4":["sheep",11], "0,4":["wood",6],    "2,4":["wheat",3]
+  };
+
+  var fixedCache = {};
+
+  function getFixed(sizeKey){
+    if (sizeKey === "4") return STANDARD_4;
+    if (!fixedCache[sizeKey]) fixedCache[sizeKey] = makeRandom();
+    return fixedCache[sizeKey];
+  }
+
+  /* ================= 港口 ================= */
+  function buildPorts(){
+    var b = [];
+    edges.forEach(function(e){ if (e.tiles.length === 1) b.push(e); });
+    b.sort(function(p,q){ return Math.atan2(p.my,p.mx) - Math.atan2(q.my,q.mx); });
+
+    var N = CUR.ports.length;
+    var n = b.length;
+    var picked = [];
+    for (var k=0;k<N;k++) picked.push(b[Math.round(k*n/N) % n]);
+
+    var defs = CUR.ports.map(function(c){ return PORT_CODES[c]; });
+    if (state.layout === "random") defs = shuffle(defs.slice());
+
+    return picked.map(function(e, i){
+      var t = TILE_MAP[e.tiles[0]];
+      var dx = e.mx - t.x, dy = e.my - t.y;
+      var len = Math.hypot(dx,dy) || 1;
+      return {
+        edge:e, nx:dx/len, ny:dy/len,
+        px: e.mx + dx/len*38, py: e.my + dy/len*38,
+        def: defs[i % defs.length]
+      };
+    });
+  }
+
+  /* ================= 渲染 ================= */
+  var state = {
+    size: "4",
+    layout: "standard",
+    data: null,
+    ports: null,
+    showVerts: false,
+    showEdges: false,
+    showPorts: true
+  };
+
+  var svg = document.getElementById("board");
+  var tip = document.getElementById("tip");
+
+  function iconSVG(kind, cx, cy){
+    var g = '<g transform="translate('+cx+','+cy+')" opacity="0.95">';
+    if (kind === "wood"){
+      g += '<path d="M0,-10 L7,0 L3,0 L8,9 L-8,9 L-3,0 L-7,0 Z" fill="#a5d98f"/>';
+      g += '<rect x="-1.5" y="9" width="3" height="4" fill="#3b2a1a"/>';
+    } else if (kind === "brick"){
+      g += '<rect x="-9" y="1" width="8" height="6" rx="1" fill="#f0b48a"/>';
+      g += '<rect x="0"  y="1" width="8" height="6" rx="1" fill="#f0b48a"/>';
+      g += '<rect x="-5" y="-7" width="8" height="6" rx="1" fill="#ffd4b2"/>';
+    } else if (kind === "sheep"){
+      g += '<circle cx="0" cy="1" r="8" fill="#fbfdf6"/>';
+      g += '<circle cx="-5" cy="-4" r="4" fill="#fbfdf6"/>';
+      g += '<circle cx="4" cy="-5" r="4.5" fill="#fbfdf6"/>';
+      g += '<circle cx="6" cy="3" r="3.5" fill="#fbfdf6"/>';
+      g += '<circle cx="9" cy="-1" r="2.6" fill="#3a3a3a"/>';
+    } else if (kind === "wheat"){
+      g += '<path d="M-6,9 L-6,-4 M0,9 L0,-10 M6,9 L6,-4" stroke="#6b4708" stroke-width="2" stroke-linecap="round"/>';
+      g += '<path d="M-9,-2 L-6,-6 L-3,-2 M-3,-8 L0,-12 L3,-8 M3,-2 L6,-6 L9,-2" stroke="#5a3c06" stroke-width="2" fill="none" stroke-linecap="round"/>';
+    } else if (kind === "ore"){
+      g += '<path d="M-10,7 L-3,-8 L3,7 Z" fill="#2e3438"/>';
+      g += '<path d="M1,7 L7,-4 L13,7 Z" fill="#454c52"/>';
+      g += '<path d="M-3,-8 L0,-2 L3,7" stroke="#d6dde2" stroke-width="1.1" fill="none" opacity="0.75"/>';
+    } else if (kind === "desert"){
+      g += '<path d="M-10,3 q5,-6 10,0 t10,0" stroke="#8a7440" stroke-width="2" fill="none" stroke-linecap="round"/>';
+      g += '<path d="M-10,-4 q5,-6 10,0 t10,0" stroke="#a08a4e" stroke-width="2" fill="none" stroke-linecap="round"/>';
+    }
+    return g + '</g>';
+  }
+
+  function render(){
+    var minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+    verts.forEach(function(v){
+      if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y;
+      if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y;
+    });
+    svg.setAttribute("viewBox", (minX-PAD)+" "+(minY-PAD)+" "+(maxX-minX+PAD*2)+" "+(maxY-minY+PAD*2));
+
+    var out = [];
+    out.push('<defs><filter id="islandShadow" x="-25%" y="-25%" width="150%" height="150%">'
+      + '<feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#000" flood-opacity="0.5"/>'
+      + '</filter></defs>');
+
+    // 沙滩
+    out.push('<g id="sand-layer" filter="url(#islandShadow)">');
+    TILES.forEach(function(t){
+      var pts = corners(t.x, t.y).map(function(c){
+        return (t.x+(c.x-t.x)*1.14)+","+(t.y+(c.y-t.y)*1.14);
+      }).join(" ");
+      out.push('<polygon points="'+pts+'" fill="var(--sand)" opacity="0.96"/>');
+    });
+    out.push('</g>');
+
+    // 地块
+    out.push('<g id="tile-layer">');
+    TILES.forEach(function(t){
+      var d = state.data[t.key];
+      var kind = d[0], num = d[1];
+      var pts = corners(t.x, t.y).map(function(c){
+        return (t.x+(c.x-t.x)*0.999)+","+(t.y+(c.y-t.y)*0.999);
+      }).join(" ");
+      out.push('<g class="tile" data-key="'+t.key+'" data-kind="'+kind+'" data-num="'+(num===null?"":num)+'">');
+      out.push('<polygon class="tile-shape" points="'+pts+'" fill="'+COLORS[kind]+'"/>');
+      out.push(iconSVG(kind, t.x, t.y - 36));
+      if (num !== null){
+        var hot = (num===6 || num===8) ? " hot" : "";
+        out.push('<circle class="num-circle" cx="'+t.x+'" cy="'+t.y+'" r="21"/>');
+        out.push('<text class="num-text'+hot+'" x="'+t.x+'" y="'+(t.y-3)+'">'+num+'</text>');
+        var n = PIPS[num], gap = 5.4, tw = (n-1)*gap;
+        for (var i=0;i<n;i++){
+          out.push('<circle class="pip" cx="'+(t.x - tw/2 + i*gap)+'" cy="'+(t.y+13)+'" r="1.5"/>');
+        }
+      }
+      out.push('</g>');
+    });
+    out.push('</g>');
+
+    if (state.showEdges){
+      out.push('<g id="edge-layer">');
+      edges.forEach(function(e){
+        out.push('<line class="edg on" x1="'+e.ax+'" y1="'+e.ay+'" x2="'+e.bx+'" y2="'+e.by+'"/>');
+      });
+      out.push('</g>');
+    }
+    if (state.showVerts){
+      out.push('<g id="vert-layer">');
+      verts.forEach(function(v){
+        out.push('<circle class="vtx on" cx="'+v.x+'" cy="'+v.y+'" r="4.2"/>');
+      });
+      out.push('</g>');
+    }
+
+    if (state.showPorts){
+      if (!state.ports) state.ports = buildPorts();
+      out.push('<g id="port-layer">');
+      state.ports.forEach(function(p){
+        var e = p.edge;
+        var hx = -p.ny, hy = p.nx;
+        var ax = e.mx + p.nx*6 + hx*13, ay = e.my + p.ny*6 + hy*13;
+        var bx = e.mx + p.nx*6 - hx*13, by = e.my + p.ny*6 - hy*13;
+        out.push('<path class="port-line" d="M'+ax+','+ay+' L'+(e.mx+p.nx*24)+','+(e.my+p.ny*24)+' L'+bx+','+by+'" fill="none"/>');
+        var bw = 56, bh = 26;
+        out.push('<rect class="port-box" x="'+(p.px-bw/2)+'" y="'+(p.py-bh/2)+'" width="'+bw+'" height="'+bh+'" rx="5"/>');
+        var label = p.def.ratio + ":1";
+        if (p.def.res){
+          out.push('<circle cx="'+(p.px-bw/2+13)+'" cy="'+p.py+'" r="6.5" fill="'+COLORS[p.def.res]+'" stroke="#07131a" stroke-width="1"/>');
+          out.push('<text class="port-txt" x="'+(p.px+7)+'" y="'+p.py+'">'+label+'</text>');
+        } else {
+          out.push('<text class="port-txt" x="'+p.px+'" y="'+p.py+'">'+label+'</text>');
+        }
+      });
+      out.push('</g>');
+    }
+
+    // 强盗（全场只有 1 个，放第一个沙漠上）
+    out.push('<g id="robber-layer">');
+    var robberPlaced = false;
+    TILES.forEach(function(t){
+      if (state.data[t.key][0] !== "desert") return;
+      if (robberPlaced) return;
+      robberPlaced = true;
+      out.push('<g transform="translate('+t.x+','+t.y+') scale(1.18)">');
+      out.push('<ellipse cx="0" cy="17" rx="12" ry="3.4" fill="#000" opacity="0.22"/>');
+      out.push('<path d="M-11,15 L-9,-1 Q-8,-8 -4,-9 L-3,-12 A5.2,5.2 0 1 1 3,-12 L4,-9 Q8,-8 9,-1 L11,15 Z" fill="#15181b" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/>');
+      out.push('<ellipse cx="0" cy="-16.2" rx="9.2" ry="2.6" fill="#0c0e10"/>');
+      out.push('<circle cx="-2.3" cy="-12.6" r="1.15" fill="#c0392b"/>');
+      out.push('<circle cx="2.3" cy="-12.6" r="1.15" fill="#c0392b"/>');
+      out.push('</g>');
+    });
+    out.push('</g>');
+
+    svg.innerHTML = out.join("");
+    updateStats();
+  }
+
+  function updateStats(){
+    var counts = {}, nums = {};
+    TILES.forEach(function(t){
+      var d = state.data[t.key];
+      counts[d[0]] = (counts[d[0]]||0)+1;
+      if (d[1] !== null) nums[d[1]] = (nums[d[1]]||0)+1;
+    });
+    var order = ["wood","brick","sheep","wheat","ore","desert"];
+    var left = "地块 " + order.map(function(k){ return NAMES[k]+" "+(counts[k]||0); }).join(" · ");
+    var ns = Object.keys(nums).map(Number).sort(function(a,b){return a-b;});
+    var right = "数字 " + ns.map(function(n){ return n+"×"+nums[n]; }).join(" ");
+
+    var p3 = 0, p2 = 0;
+    CUR.ports.forEach(function(c){ if (c === "3") p3++; else p2++; });
+
+    document.getElementById("stats").innerHTML =
+      "<span>"+left+"</span>" +
+      "<span>"+right+"</span>" +
+      "<span>顶点 <code>"+verts.size+"</code> · 边 <code>"+edges.size+"</code></span>" +
+      "<span>港口 <code>"+CUR.ports.length+"</code>（"+p3+"×(3:1) + "+p2+"×(2:1)）</span>" +
+      "<span class='warn'>"+CUR.note+"</span>";
+
+    document.getElementById("subtitle").textContent =
+      CUR.label + " · 行 " + CUR.rows.join("-") + " · 尖顶朝上 · 数字 6/8 标红";
+  }
+
+  /* ================= 交互 ================= */
+  svg.addEventListener("mousemove", function(ev){
+    var g = ev.target.closest ? ev.target.closest(".tile") : null;
+    if (!g){ tip.style.opacity = 0; return; }
+    var k = g.getAttribute("data-key");
+    var kind = g.getAttribute("data-kind");
+    var num = g.getAttribute("data-num");
+    var txt = "<b>"+NAMES[kind]+"</b>　"+k;
+    if (num) txt += "<br>数字 <b>"+num+"</b>　概率 "+PIPS[+num]+"/36";
+    if (kind === "desert") txt += "　（强盗在此）";
+    tip.innerHTML = txt;
+    tip.style.left = (ev.clientX + 14) + "px";
+    tip.style.top  = (ev.clientY + 14) + "px";
+    tip.style.opacity = 1;
+  });
+  svg.addEventListener("mouseleave", function(){ tip.style.opacity = 0; });
+
+  function loadSize(sizeKey){
+    state.size = sizeKey;
+    buildGeometry(sizeKey);
+    state.data = getFixed(sizeKey);
+    state.layout = "standard";
+    state.ports = null;
+    document.querySelectorAll("#size-group button").forEach(function(b){
+      b.classList.toggle("on", b.getAttribute("data-size") === sizeKey);
+    });
+    document.getElementById("btn-standard").classList.remove("on");
+    render();
+  }
+
+  document.querySelectorAll("#size-group button").forEach(function(b){
+    b.addEventListener("click", function(){ loadSize(b.getAttribute("data-size")); });
+  });
+
+  document.getElementById("btn-reroll").addEventListener("click", function(){
+    state.layout = "random";
+    state.data = makeRandom();
+    state.ports = null;
+    render();
+  });
+
+  document.getElementById("btn-standard").addEventListener("click", function(){
+    state.layout = "standard";
+    state.data = getFixed(state.size);
+    state.ports = null;
+    document.getElementById("btn-standard").classList.add("on");
+    render();
+  });
+
+  function bindToggle(id, key){
+    var el = document.getElementById(id);
+    el.addEventListener("click", function(){
+      state[key] = !state[key];
+      el.classList.toggle("on", state[key]);
+      render();
+    });
+  }
+  bindToggle("btn-verts", "showVerts");
+  bindToggle("btn-edges", "showEdges");
+  bindToggle("btn-ports", "showPorts");
+
+  /* ================= 启动 ================= */
+  var init = location.hash.replace("#","");
+  loadSize(MAPS[init] ? init : "4");
+
+})();
+</script>
+</body>
+</html>

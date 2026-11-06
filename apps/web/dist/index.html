@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>六角拓荒</title>
+  <script type="module" crossorigin src="/assets/index-C3OUP-fd.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-2ILt2oS4.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+          <path d="M13 2 L23 7.5 L23 18.5 L13 24 L3 18.5 L3 7.5 Z"
+                fill="#4A8B5C" stroke="#4A3325" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M13 8 L18 11 L18 16 L13 19 L8 16 L8 11 Z" fill="#FFF9F0" opacity=".85"/>
+        </svg>
+        <span class="name">六角拓荒</span>
+      </div>
+
+      <div class="room">
+        <span class="dot" id="conn-dot"></span>
+        <span id="room-label">房间 <b id="room-id">—</b></span>
+      </div>
+
+      <div class="topmid">
+        <div class="turnchip">
+          <div class="ava" id="turn-ava" style="--c:#B9A48C">·</div>
+          <span id="turn-text">连接中…</span>
+        </div>
+        <div class="draftflag" id="phase-flag">等待开局</div>
+      </div>
+
+      <div class="mobilebar" id="mobilebar"></div>
+
+      <button class="iconbtn" id="btn-settings" title="房间设置" aria-label="房间设置">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B5445" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+        </svg>
+      </button>
+    </header>
+
+    <main class="main">
+      <aside class="panel left">
+        <div class="panel-head">玩家</div>
+        <div class="players" id="players"></div>
+
+        <div class="sidebox" id="sidebox">
+          <div class="row"><span>最长路</span><b>—</b></div>
+          <div class="row"><span>最大军</span><b>—</b></div>
+          <div class="row"><span>牌堆剩余</span><b>—</b></div>
+        </div>
+
+        <div class="panel-head" style="margin-top:12px;">最近动作</div>
+        <div class="log" id="log"></div>
+      </aside>
+
+      <section class="table">
+        <svg id="board" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="setupbar hidden" id="setupbar"></div>
+        <div class="robberbar hidden" id="robberbar"></div>
+        <div class="build-panel hidden" id="build"></div>
+        <div class="trade-panel hidden" id="trade"></div>
+        <div class="offer-bar hidden" id="offer"></div>
+        <div class="discard-panel hidden" id="discard"></div>
+        <div class="table-empty" id="table-empty">等待开局</div>
+      </section>
+
+      <aside class="panel right">
+        <div class="panel-head">手牌 <span class="hand-total" id="hand-total"></span></div>
+        <div class="hand-side"><div class="handrow" id="hand"></div></div>
+
+        <div class="panel-head">发展卡</div>
+        <div class="devcards" id="devcards"></div>
+
+        <div class="panel-head" style="margin-top:14px;">本局</div>
+        <div class="sidebox" id="roundbox" style="margin:0 12px;">
+          <div class="row"><span>回合</span><b>—</b></div>
+          <div class="row"><span>掷骰</span><b>—</b></div>
+          <div class="row"><span>手牌</span><b>—</b></div>
+        </div>
+
+        <div class="panel-head" style="margin-top:14px;">提示</div>
+        <div class="sidebox" style="margin:0 12px;">
+          <div style="font-size:11.5px;color:#8A7259;line-height:1.75;">
+            手牌 8 张起，掷出 7 要弃掉一半（<b style="color:#C8503F;">向上取整</b>），弃哪几张由你自己选。
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="bottombar">
+      <div class="opbar">
+        <div class="dicepair">
+          <div class="dice" id="die1">?</div>
+          <div class="dice" id="die2">?</div>
+        </div>
+        <button class="btn primary" id="btn-roll" disabled data-tip="roll">掷骰子</button>
+        <button class="btn ghost mini" id="btn-build" disabled data-tip="build">建造</button>
+        <button class="btn ghost mini" id="btn-trade" disabled data-tip="trade">交易</button>
+        <button class="btn ghost mini" id="btn-end" disabled data-tip="end">结束回合</button>
+        <div class="feed">
+          <span class="tag" id="feed-tag">状态</span>
+          <span class="txt" id="feed-text">正在连接…</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- 房间设置：房主在开局前可改，开局后本局锁定 -->
+  <div class="settings hidden" id="settings">
+    <div class="set-title">房间设置 <button class="set-close" id="settings-close" aria-label="关闭">×</button></div>
+    <label class="set-row" for="set-setup-grant">
+      <span class="set-text">
+        <b>开局自动获得周围资源</b>
+        <small>第二轮摆位时，村庄相邻地块各发 1 张。关掉则空手开局。</small>
+      </span>
+      <input type="checkbox" id="set-setup-grant" checked>
+    </label>
+    <div class="set-note" id="settings-note">开局前可修改；开局后本局锁定。</div>
+  </div>
+
+  <div class="tipbox hidden" id="tipbox" role="tooltip"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="sheet" id="sheet"></div>
+  </div>
+
+</body>
+</html>
