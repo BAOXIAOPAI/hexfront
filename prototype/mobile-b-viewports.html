@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>阶段 B · 视口与状态核对页</title>
+<!--
+  用固定 CSS 尺寸的 iframe 并排核对指南 4.1 / 4.2 / 13.1 的布局。
+  为什么用 iframe 而不是 --window-size：docs/09-mobile-assessment.md 记录过，
+  headless 外窗尺寸会被浏览器按更大宽度布局再缩放，导致「移动端被裁切」的误判。
+  iframe 的媒体查询按自身 CSS 尺寸计算，innerWidth/innerHeight 可直接在角标里核对。
+
+  这只是模拟视口，不能替代真机（指南 13.1 最后一行）。
+-->
+<style>
+:root{--surface:#fffaf1;--surface-2:#f4e9d7;--text:#2f241b;--dim:#6d5c4c;--border:#d9c6aa;--accent:#b5651d}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#eef3f2;color:var(--text);font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif}
+h1{font-size:20px;margin:0 0 6px}
+.lead{font-size:13px;line-height:1.7;color:var(--dim);max-width:980px;margin:0 0 16px}
+.lead code{background:#e4ded1;border-radius:4px;padding:1px 5px;font-size:12px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.legend span{font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px}
+.grid{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.case{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:10px;box-shadow:0 4px 14px rgba(47,36,27,.08)}
+.case h2{font-size:13px;margin:0 0 2px}
+.case .meta{font-size:11px;color:var(--dim);margin-bottom:8px;font-variant-numeric:tabular-nums}
+.frame{position:relative;border:1px solid #b9a88e;border-radius:8px;overflow:hidden;background:#cfe4e9}
+.frame iframe{display:block;border:0;transform-origin:0 0;background:#dceef2}
+.checklist{max-width:980px;margin-top:24px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px}
+.checklist h2{font-size:15px;margin:0 0 8px}
+.checklist ul{margin:0 0 10px;padding-left:20px;font-size:12px;line-height:1.9;color:var(--dim)}
+.checklist b{color:var(--text)}
+.checklist .warn{background:#f9e0dc;border-left:4px solid #b23b2e;border-radius:6px;padding:8px 12px;font-size:12px;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>阶段 B · 视口与状态核对页</h1>
+<p class="lead">
+  每张卡片是一个固定 CSS 尺寸的 <code>iframe</code>，加载 <code>mobile-b.html</code> 的确定性状态。
+  卡片左上角的黑色角标显示 iframe 内真实的 <code>innerWidth × innerHeight</code>（CSS px）与 dpr —— 用来核对媒体查询确实按该尺寸生效，
+  而不是把外窗尺寸当视口。这里只验证布局与信息层级；<b>双指手势、后台语音、网络切换、误触手感仍需真机</b>。
+</p>
+<div class="legend">
+  <span>横屏：棋盘主舞台 + 右侧 160–192px 行动区</span>
+  <span>顶栏：连接 / 玩家条 / 设置帮助</span>
+  <span>按需出现：选点确认条、事件提示</span>
+  <span>竖屏：入房等待 + 状态摘要，不锁方向</span>
+</div>
+<div class="grid" id="grid"></div>
+
+<div class="checklist">
+  <h2>阶段 B 完成门槛核对</h2>
+  <ul>
+    <li><b>可由此页核对：</b>667×375 下棋盘面积、确认条位置、弃牌面板加减按钮、交易列表滚动、抽屉底部固定按钮、竖屏旋转提示是否常驻且不遮挡。</li>
+    <li><b>可在原型里操作核对：</b>单指拖动与点选阈值区分、双指缩放围绕手势中心、缩放按钮、候选消歧、先预览再确认、取消只撤本地、模拟 STATE 后相机不重置且失效候选被清除并解释。</li>
+    <li><b>必须真机：</b>手指能否稳定选中目标、双指与浏览器手势冲突、安全区与浏览器栏变化、软键盘、后台语音后恢复、低分辨率可读性。模拟视口不是实机替代。</li>
+  </ul>
+  <div class="warn">
+    指南 12 阶段 B 的完成门槛写的是「真机可以稳定选中目标」。本页与原型只能完成其中的布局与逻辑部分，
+    <b>真机项未完成前不能宣称阶段 B 通过</b>。
+  </div>
+</div>
+
+<script>
+const CASES = [
+  { w:667,  h:375, s:0.62, state:'default',                  label:'小横屏 · 默认对局' },
+  { w:667,  h:375, s:0.62, state:'build',    autopick:1,      label:'小横屏 · 建造预览 + 确认条' },
+  { w:667,  h:375, s:0.62, state:'discard',                  label:'小横屏 · 弃牌专用面板' },
+  { w:844,  h:390, s:0.55, state:'trade', drawer:'offers',    label:'常见横屏 · 交易列表/详情' },
+  { w:932,  h:430, s:0.52, state:'robber',                   label:'常见横屏 · 强盗待办' },
+  { w:375,  h:667, s:0.62, state:'lobby',                    label:'竖屏 · 入房 / 等待' },
+  { w:390,  h:844, s:0.55, state:'default',                  label:'竖屏 · 临时查看状态' },
+  { w:1024, h:768, s:0.42, state:'default', drawer:'help',    label:'平板 · 布局过渡 / 触屏帮助' },
+  { w:1366, h:768, s:0.38, state:'default',                  label:'桌面 · 宽屏详情展开' },
+];
+const grid = document.getElementById('grid');
+for (const c of CASES) {
+  const card = document.createElement('div');
+  card.className = 'case';
+  const q = new URLSearchParams({
+    state:c.state, debug:'0', badge:'1',
+    ...(c.autopick ? { autopick:'1' } : {}),
+    ...(c.drawer ? { drawer:c.drawer } : {}),
+  });
+  card.innerHTML = `
+    <h2>${c.label}</h2>
+    <div class="meta">${c.w} × ${c.h} CSS px · 显示缩放 ${(c.s*100).toFixed(0)}%</div>
+    <div class="frame" style="width:${Math.round(c.w*c.s)}px;height:${Math.round(c.h*c.s)}px">
+      <iframe src="mobile-b.html?${q.toString()}"
+              style="width:${c.w}px;height:${c.h}px;transform:scale(${c.s})"
+              title="${c.label}" loading="lazy"></iframe>
+    </div>`;
+  grid.appendChild(card);
+}
+</script>
+</body>
+</html>

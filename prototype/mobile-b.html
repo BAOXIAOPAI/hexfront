@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>六角拓荒 · 阶段 B 横屏交互原型</title>
+<!--
+  重构指南 docs/10-refactor-guide.md 阶段 B 的隔离原型。
+  纯前端、确定性数据、不连服务端、不读写真实游戏状态。
+  目标：先验证「能操作」，美术留到阶段 E。
+
+  用法：
+    ?state=default|build|trade|discard|robber|lobby   切换确定性状态
+    &debug=0                                          隐藏调试栏（视口核对页用）
+    &badge=1                                          显示实际 CSS 视口角标
+  调试栏里的按钮可以切换状态、模拟服务端广播、让当前候选失效。
+-->
+<style>
+:root{
+  color-scheme:light;
+  --sea:#dceef2; --sea-2:#b6dce5; --island:#eadfc4;
+  --surface:#fffaf1; --surface-2:#f4e9d7; --surface-3:#e9dcc4;
+  --text:#2f241b; --text-dim:#6d5c4c; --border:#d9c6aa;
+  --accent:#b5651d; --accent-soft:#f7e3c4;
+  --danger:#b23b2e; --danger-soft:#f9e0dc;
+  --ok:#3c7a4e; --warn:#a9680f;
+  --p1:#c1443b; --p2:#2f6fa8; --p3:#f5f1e6; --p4:#df8b2b;
+  --radius:10px; --tap:44px;
+  --topbar-h:clamp(44px,6.5dvh,48px);
+  --action-w:clamp(160px,22vw,192px);
+  --font:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:var(--font);color:var(--text);background:var(--sea);overscroll-behavior:none;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+.app{
+  position:relative;height:100dvh;overflow:hidden;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display:grid;grid-template-rows:var(--topbar-h) minmax(0,1fr);
+  background:var(--sea);
+}
+
+/* ---------- 顶栏：连接 / 玩家条 / 设置帮助 ---------- */
+.topbar{display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--surface);border-bottom:1px solid var(--border);min-width:0;z-index:12}
+.conn{display:flex;align-items:center;gap:5px;font-size:11px;white-space:nowrap;color:var(--text-dim)}
+.conn .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(60,122,78,.16)}
+.conn[data-offline="1"] .dot{background:var(--danger)}
+.room-id{font-family:ui-monospace,Menlo,monospace;font-size:11px}
+.playerstrip{flex:1;display:flex;align-items:center;justify-content:center;gap:4px;min-width:0}
+.pchip{display:flex;align-items:center;gap:4px;min-height:30px;padding:2px 6px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);font-size:11px;white-space:nowrap}
+.pchip[data-current="1"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 2px rgba(181,101,29,.15);font-weight:700}
+.pchip .swatch{width:14px;height:14px;border-radius:50%;border:2px solid #6b5a48;flex:none}
+.pchip[data-color="p3"] .swatch{background:repeating-linear-gradient(45deg,#fff,#fff 3px,#d9cdb8 3px,#d9cdb8 5px)}
+.pchip[data-color="p4"] .swatch{border-color:#5a3c14}
+.pchip .pnum{font-variant-numeric:tabular-nums}
+.pchip .pending{color:var(--danger);font-weight:700}
+.top-actions{display:flex;gap:4px;flex:none}
+.iconbtn{min-width:var(--tap);min-height:var(--tap);border:1px solid var(--border);border-radius:8px;background:var(--surface);display:grid;place-items:center;font-size:14px}
+.iconbtn[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+
+/* ---------- 主舞台 ---------- */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) var(--action-w);min-height:0}
+.board-wrap{position:relative;min-width:0;overflow:hidden;touch-action:none;
+  background:radial-gradient(120% 120% at 50% 45%,var(--sea) 0%,var(--sea-2) 100%)}
+#board{display:block;width:100%;height:100%;touch-action:none}
+.sea-grain{position:absolute;inset:0;pointer-events:none;opacity:.25;
+  background-image:repeating-linear-gradient(0deg,transparent,transparent 22px,rgba(255,255,255,.35) 23px,transparent 24px)}
+
+.cam-tools{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:5px;z-index:8}
+.cam-btn{width:var(--tap);height:var(--tap);border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 2px 8px rgba(47,36,27,.16);font-size:18px;font-weight:700;display:grid;place-items:center}
+.cam-btn:active{background:var(--accent-soft)}
+
+.situation{position:absolute;left:8px;bottom:8px;z-index:8;max-width:min(60%,340px);
+  background:rgba(255,250,241,.94);border:1px solid var(--border);border-left:4px solid var(--accent);
+  border-radius:8px;padding:6px 10px;font-size:12px;line-height:1.45;box-shadow:0 2px 10px rgba(47,36,27,.12)}
+.situation b{color:var(--accent)}
+.situation[data-urgent="1"]{border-left-color:var(--danger);background:var(--danger-soft)}
+
+.confirmbar{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom));z-index:20;
+  display:none;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px);
+  background:var(--surface);border:2px solid var(--accent);border-radius:14px;padding:8px 10px;
+  box-shadow:0 8px 26px rgba(47,36,27,.28)}
+.confirmbar.show{display:flex}
+.confirmbar .cinfo{font-size:12px;line-height:1.3;min-width:120px}
+.confirmbar .cinfo b{display:block;font-size:13px}
+.confirmbar .cinfo small{color:var(--text-dim)}
+.btn{min-height:var(--tap);min-width:var(--tap);padding:0 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-weight:600;font-size:13px}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.danger{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.tiny{min-height:var(--tap);font-size:12px;padding:0 10px}
+.candidates{display:flex;gap:6px;flex-wrap:wrap}
+.candidates .btn{min-height:var(--tap)}
+
+.toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:60;
+  background:var(--text);color:#fff;border-radius:999px;padding:8px 16px;font-size:12px;
+  opacity:0;pointer-events:none;transition:opacity .18s;max-width:90%;text-align:center}
+.toast.show{opacity:1}
+
+/* ---------- 右侧行动区 ---------- */
+.actionbar{display:flex;flex-direction:column;min-height:0;background:var(--surface);border-left:1px solid var(--border)}
+.act-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px;touch-action:pan-y}
+.act-pinned{flex:none;padding:6px;border-top:1px solid var(--border);background:var(--surface-2);touch-action:auto}
+.group{margin-bottom:8px}
+.group-title{font-size:10px;letter-spacing:.08em;color:var(--text-dim);margin:0 0 4px 2px}
+.res-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.res{display:flex;align-items:center;gap:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:12px}
+.res .ico{width:16px;height:16px;border-radius:4px;flex:none;display:grid;place-items:center;font-size:10px;font-weight:700;color:#fff}
+.res .n{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
+.act-list{display:flex;flex-direction:column;gap:4px}
+.act-btn{width:100%;min-height:var(--tap);display:flex;align-items:center;gap:6px;padding:0 8px;
+  border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:12px;text-align:left}
+.act-btn .badge{margin-left:auto;background:var(--accent);color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700}
+.act-btn[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent)}
+.act-btn[disabled]{opacity:.45}
+.hint{font-size:10px;color:var(--text-dim);line-height:1.4;padding:2px}
+.pinned-row{display:flex;gap:4px}
+.pinned-row .btn{flex:1;padding:0 6px;font-size:12px}
+.blocked-reason{font-size:10px;color:var(--danger);line-height:1.3;margin-bottom:4px}
+.detail-pane{display:none;font-size:11px;color:var(--text-dim);line-height:1.5}
+.detail-pane h4{font-size:11px;margin:0 0 4px;color:var(--text)}
+
+/* ---------- 抽屉 ---------- */
+.drawer{position:absolute;top:var(--topbar-h);right:0;bottom:0;width:min(340px,46vw);z-index:40;
+  background:var(--surface);border-left:2px solid var(--border);box-shadow:-10px 0 30px rgba(47,36,27,.2);
+  display:flex;flex-direction:column;transform:translateX(105%);transition:transform .2s}
+.drawer.open{transform:translateX(0)}
+.app[data-picking="1"] .drawer{transform:translateX(105%)}
+.drawer-head{flex:none;display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid var(--border)}
+.drawer-head h3{font-size:14px;margin:0;flex:1}
+.drawer-body{flex:1;min-height:0;overflow-y:auto;padding:8px;touch-action:pan-y}
+.drawer-foot{flex:none;padding:8px;border-top:1px solid var(--border);background:var(--surface-2);display:flex;gap:6px}
+.drawer-foot .btn{flex:1}
+.offer-card{border:1px solid var(--border);border-radius:10px;padding:8px;margin-bottom:8px;background:var(--surface-2)}
+.offer-card.expired{opacity:.6;border-style:dashed}
+.offer-card h4{margin:0 0 4px;font-size:12px}
+.offer-line{font-size:12px;line-height:1.5}
+.offer-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-top:4px}
+.offer-actions{display:flex;gap:6px;margin-top:8px;position:sticky;bottom:0}
+.offer-actions .btn{flex:1;min-height:var(--tap);font-size:12px;padding:0 6px}
+.cd{font-variant-numeric:tabular-nums;font-weight:700}
+.help-block{margin-bottom:12px;font-size:12px;line-height:1.6}
+.help-block b{display:block;margin-bottom:2px}
+.devcard{border:1px solid var(--border);border-radius:10px;padding:8px;margin-bottom:6px;background:var(--surface-2);font-size:12px}
+.devcard.unavailable{opacity:.55}
+
+/* ---------- 弃牌专用面板 ---------- */
+.discard-sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:35;
+  width:min(360px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;
+  background:var(--surface);border:2px solid var(--danger);border-radius:16px;padding:12px;
+  box-shadow:0 14px 40px rgba(47,36,27,.35);display:none}
+.discard-sheet.show{display:block}
+.discard-sheet h3{margin:0 0 4px;font-size:15px}
+.discard-line{font-size:12px;color:var(--text-dim);margin-bottom:8px}
+.discard-row{display:grid;grid-template-columns:1fr var(--tap) 40px var(--tap);align-items:center;gap:6px;
+  padding:4px 0;border-bottom:1px dashed var(--border);font-size:12px}
+.discard-row .stepper{min-height:var(--tap);min-width:var(--tap);border:1px solid var(--border);border-radius:10px;background:var(--surface-2);font-size:18px;font-weight:700}
+.discard-row .val{text-align:center;font-variant-numeric:tabular-nums;font-weight:700}
+.discard-summary{display:flex;justify-content:space-between;align-items:center;margin:10px 0;font-size:13px;font-weight:700}
+.discard-foot{display:flex;gap:8px}
+.discard-foot .btn{flex:1}
+.peer-pending{font-size:11px;color:var(--text-dim);margin-top:6px}
+
+/* ---------- 竖屏 ---------- */
+.portrait-gate{display:none;position:absolute;inset:var(--topbar-h) 0 0 0;z-index:25;
+  align-items:center;justify-content:center;padding:16px;background:rgba(220,238,242,.82)}
+.portrait-card{width:min(360px,100%);background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  padding:14px;box-shadow:0 10px 30px rgba(47,36,27,.2);text-align:center}
+.portrait-card h3{margin:0 0 6px;font-size:16px}
+.portrait-card p{font-size:12px;line-height:1.6;color:var(--text-dim);margin:0 0 10px}
+.portrait-status{text-align:left;font-size:12px;line-height:1.7;background:var(--surface-2);border-radius:10px;padding:8px;margin-bottom:10px}
+.portrait-card .btn{width:100%;margin-top:6px}
+.portrait-note{font-size:11px;color:var(--text-dim);margin-top:8px}
+
+/* ---------- 调试栏 / 角标 ---------- */
+.devbar{position:fixed;left:0;right:0;bottom:0;z-index:80;background:#241c15;color:#f7ead8;
+  display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;font-size:11px}
+.devbar button{min-height:28px;padding:0 8px;border:1px solid #6b5846;border-radius:6px;background:#3a2c20;color:inherit;font-size:11px}
+.devbar button.on{background:var(--accent);border-color:var(--accent)}
+.devbar .readout{margin-left:auto;font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+.app[data-debug="1"]{height:calc(100dvh - 40px)}
+.viewport-badge{position:absolute;left:6px;top:6px;z-index:70;background:#241c15;color:#fff;
+  border-radius:6px;padding:3px 6px;font:10px ui-monospace,Menlo,monospace;display:none}
+.app[data-badge="1"] .viewport-badge{display:block}
+.hide{display:none !important}
+
+/* ---------- 断点与偏好 ---------- */
+@media (max-height:420px){
+  :root{--topbar-h:44px}
+  .pchip{font-size:10px;min-height:28px;padding:1px 5px}
+  .act-scroll{padding:4px}
+  .group{margin-bottom:5px}
+  .group-title{font-size:9px;margin-bottom:2px}
+  .res{font-size:11px;padding:3px 4px}
+  .act-btn{font-size:11px}
+  .situation{font-size:11px;padding:4px 8px;bottom:6px}
+}
+@media (orientation:portrait) and (max-width:700px){
+  .stage{grid-template-columns:minmax(0,1fr)}
+  .actionbar{display:none}
+  .portrait-gate{display:flex}
+  .cam-tools{right:6px;top:6px}
+  .situation{display:none}
+  .viewport-badge{top:auto;bottom:6px}
+}
+@media (min-width:1100px) and (orientation:landscape){
+  :root{--action-w:232px}
+  .detail-pane{display:block}
+  .res-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+[data-reduce-motion="1"] *{transition:none !important;animation:none !important}
+</style>
+</head>
+<body>
+<div class="app" id="app" data-state="default" data-debug="1" data-reduce-motion="0" data-picking="0">
+
+  <div class="viewport-badge" id="viewport-badge">—</div>
+
+  <header class="topbar">
+    <div class="conn" id="conn"><span class="dot"></span><span>已同步 · <span class="room-id">demo</span></span></div>
+    <div class="playerstrip" id="playerstrip"></div>
+    <div class="top-actions">
+      <button class="iconbtn" id="btn-help" aria-label="帮助与规则说明" title="帮助">?</button>
+      <button class="iconbtn" id="btn-motion" aria-label="减少动态效果" aria-pressed="false" title="减少动态效果">≈</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="board-wrap" id="board-wrap" aria-label="棋盘手势区">
+      <svg id="board" xmlns="http://www.w3.org/2000/svg" aria-label="六角棋盘"></svg>
+      <div class="sea-grain"></div>
+      <div class="cam-tools">
+        <button class="cam-btn" id="zoom-in" aria-label="放大棋盘">+</button>
+        <button class="cam-btn" id="zoom-out" aria-label="缩小棋盘">−</button>
+        <button class="cam-btn" id="zoom-reset" aria-label="回到全局视图" title="回到全局">⌂</button>
+      </div>
+      <div class="situation" id="situation"></div>
+      <div class="confirmbar" id="confirmbar" role="group" aria-label="选点确认"></div>
+      <div class="toast" id="toast"></div>
+    </section>
+
+    <aside class="actionbar" aria-label="行动区">
+      <div class="act-scroll" id="act-scroll">
+        <div class="group">
+          <div class="group-title">我的资源 · <span id="hand-total">0</span> 张</div>
+          <div class="res-grid" id="res-grid"></div>
+        </div>
+        <div class="group">
+          <div class="group-title">行动</div>
+          <div class="act-list" id="act-list"></div>
+        </div>
+        <div class="group detail-pane" id="detail-pane">
+          <h4>最近动作 / 玩家详情（宽屏展开）</h4>
+          <div id="detail-content"></div>
+        </div>
+        <div class="hint">棋盘：单指拖动平移、双指缩放；轻点合法位置先预览再确认。拖动超过阈值不会触发建造。</div>
+      </div>
+      <div class="act-pinned" id="act-pinned"></div>
+    </aside>
+  </main>
+
+  <div class="drawer" id="drawer" aria-label="详情抽屉">
+    <div class="drawer-head">
+      <h3 id="drawer-title">详情</h3>
+      <button class="btn tiny ghost" id="drawer-close" aria-label="关闭抽屉">关闭</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+    <div class="drawer-foot" id="drawer-foot"></div>
+  </div>
+
+  <div class="discard-sheet" id="discard-sheet" aria-label="弃牌面板">
+    <h3>掷出 7 · 需要弃牌</h3>
+    <div class="discard-line">系统只计算应弃数量，弃哪几张由你自己选。其他玩家看不到你的选择。</div>
+    <div id="discard-rows"></div>
+    <div class="peer-pending" id="peer-pending"></div>
+    <div class="discard-summary"><span>已选 <span id="discard-selected">0</span> 张</span><span>应弃 <span id="discard-need">5</span> 张</span></div>
+    <div class="discard-foot">
+      <button class="btn ghost" id="discard-clear">清空</button>
+      <button class="btn primary" id="discard-submit" disabled>提交弃牌</button>
+    </div>
+  </div>
+
+  <div class="portrait-gate" id="portrait-gate">
+    <div class="portrait-card">
+      <h3>建议横屏对局</h3>
+      <p>横屏能同时看清整张棋盘与行动区。竖屏仍可查看状态，旋转不会退出房间，也不会丢失待确认的选择。</p>
+      <div class="portrait-status" id="portrait-status"></div>
+      <button class="btn primary" id="portrait-dismiss">仍在竖屏查看</button>
+      <button class="btn" id="portrait-help">查看操作帮助</button>
+      <div class="portrait-note">不会反复弹出提示；竖屏也能入房、等待与查看回合摘要。</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="devbar" id="devbar">
+  <span>状态：</span>
+  <button data-state-btn="default">默认</button>
+  <button data-state-btn="build">建造</button>
+  <button data-state-btn="trade">交易</button>
+  <button data-state-btn="discard">弃牌</button>
+  <button data-state-btn="robber">强盗待办</button>
+  <button data-state-btn="lobby">竖屏入房</button>
+  <button id="dev-broadcast">模拟服务端广播</button>
+  <button id="dev-invalidate">使当前候选失效</button>
+  <span class="readout" id="dev-readout">—</span>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // =========================================================================
+  // 1. 确定性数据：指南 12 阶段 B 要求覆盖的五类状态 + 竖屏入房
+  // =========================================================================
+  const RES = {
+    wood:  { label:'木材', short:'木', color:'#4a7a45' },
+    brick: { label:'砖块', short:'砖', color:'#b5613f' },
+    sheep: { label:'羊毛', short:'羊', color:'#7fa85c' },
+    wheat: { label:'麦子', short:'麦', color:'#c99a35' },
+    ore:   { label:'矿石', short:'矿', color:'#6b7b88' },
+  };
+  const RES_KEYS = Object.keys(RES);
+  const PLAYERS = [
+    { name:'甲', color:'p1', hand:7, score:3, pending:false },
+    { name:'乙', color:'p2', hand:9, score:4, pending:false },
+    { name:'丙', color:'p3', hand:6, score:2, pending:false },
+    { name:'丁', color:'p4', hand:11, score:5, pending:false },
+  ];
+  const COST_VILLAGE = { wood:1, brick:1, sheep:1, wheat:1 };
+  const INIT_HAND = { wood:3, brick:2, sheep:2, wheat:1, ore:1 };
+  const OFFER_TTL_MS = 10000;        // 指南 7.2：每条 10 秒
+  const SEND_COOLDOWN_MS = 3000;     // 指南 7.2：每人 3 秒
+  const DRAG_THRESHOLD_PX = 8;       // 指南 5.1：阈值以 CSS px 定义，真机需调整
+  const MAX_HIT_PX = 30;             // 最近候选的屏幕距离上限
+  const AMBIGUITY_PX = 12;           // 前两名差距小于此值 → 显示候选选择
+
+  const STATES = {
+    default: {
+      label:'默认 · 轮到你', current:0, rolled:true, dice:[3,3],
+      situation:'<b>轮到你</b> · 已掷 6，可建造、交易或结束回合',
+      urgent:false, robberPending:false, discard:false,
+      offers:[], hand:{...INIT_HAND},
+    },
+    build: {
+      label:'建造预览', current:0, rolled:true, dice:[3,3],
+      situation:'<b>建造村庄</b> · 点选一个合法路口，先预览再确认',
+      urgent:false, robberPending:false, discard:false,
+      offers:[], hand:{...INIT_HAND}, pickMode:'vertex',
+    },
+    trade: {
+      label:'交易列表', current:0, rolled:true, dice:[3,3],
+      situation:'<b>交易 2</b> · 可任选一条处理，按创建时间排序',
+      urgent:false, robberPending:false, discard:false,
+      offers:[
+        { id:'o1', from:1, to:0, give:{wood:2}, get:{wheat:1}, ttl:8200 },
+        { id:'o2', from:2, to:0, give:{ore:1},  get:{brick:1}, ttl:4600 },
+      ],
+      hand:{...INIT_HAND}, cooldownLeft:1.8,
+    },
+    discard: {
+      label:'弃牌', current:0, rolled:true, dice:[1,6],
+      situation:'<b>等待弃牌</b> · 3 人尚未完成，交易与建造暂停',
+      urgent:true, robberPending:false, discard:true, discardNeed:5,
+      offers:[], hand:{ wood:3, brick:2, sheep:2, wheat:1, ore:1 },
+      peersPending:[1,2,3],
+    },
+    robber: {
+      label:'强盗待办', current:0, rolled:true, dice:[1,6],
+      situation:'<b>强盗待移动</b> · 交易/建造已恢复；结束回合前必须完成强盗结算',
+      urgent:true, robberPending:true, discard:false,
+      offers:[], hand:{...INIT_HAND}, pickMode:'tile',
+    },
+    lobby: {
+      label:'竖屏入房 / 等待', current:-1, rolled:false, dice:null,
+      situation:'等待玩家入房',
+      urgent:false, robberPending:false, discard:false,
+      offers:[], hand:{...INIT_HAND},
+    },
+  };
+
+  const params = new URLSearchParams(location.search);
+  const DEBUG = params.get('debug') !== '0';
+  const BADGE = params.get('badge') === '1';
+  const app = document.getElementById('app');
+  app.dataset.debug = DEBUG ? '1' : '0';
+  app.dataset.badge = BADGE ? '1' : '0';
+  if (!DEBUG) document.getElementById('devbar').classList.add('hide');
+
+  let S = null;                    // 当前状态（确定性数据的副本）
+  let hand = {};                   // 本地展示用资源（确认后才改）
+  let discardPick = {};            // 弃牌选择
+  let occupied = new Set();        // 已被占用的顶点（模拟他人广播）
+  let log = [];
+  let drawerMode = null;
+  let selected = null;             // { key, kind, x, y, label }
+  let ambiguity = null;            // 候选消歧列表
+  let reduceMotion = false;
+  let offerTimers = new Map();
+  let cooldownUntil = 0;
+  let broadcastCount = 0;
+
+  // =========================================================================
+  // 2. 棋盘几何：19 格 axial hex，顶点去重 → 54 个稳定 key
+  // =========================================================================
+  const R = 62;
+  const MAP_CENTER = { x:500, y:350 };
+  const TERRAIN = ['wood','brick','sheep','wheat','ore','desert','wood','wheat','sheep','ore',
+                   'brick','wood','wheat','sheep','ore','brick','wheat','sheep','ore'];
+  const NUMBERS = [5,2,6,3,8,10,9,12,11,4,8,10,9,4,5,6,3,11,null];
+
+  function hexCorners(cx, cy, r) {
+    const out = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI / 180) * (60 * i);
+      out.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+    }
+    return out;
+  }
+
+  const TILES = [];
+  for (let q = -2; q <= 2; q++) {
+    for (let r = Math.max(-2, -q - 2); r <= Math.min(2, -q + 2); r++) {
+      const cx = MAP_CENTER.x + 1.5 * R * q;
+      const cy = MAP_CENTER.y + Math.sqrt(3) * R * (r + q / 2);
+      const i = TILES.length;
+      TILES.push({ key:'t'+i, q, r, cx, cy, terrain:TERRAIN[i], number:NUMBERS[i], corners:hexCorners(cx,cy,R) });
+    }
+  }
+  const vertexMap = new Map();
+  for (const t of TILES) {
+    for (const p of t.corners) {
+      const k = Math.round(p.x) + ',' + Math.round(p.y);
+      if (!vertexMap.has(k)) vertexMap.set(k, { key:'v'+vertexMap.size, x:Math.round(p.x), y:Math.round(p.y) });
+    }
+  }
+  const VERTICES = [...vertexMap.values()].sort((a,b) => a.y - b.y || a.x - b.x)
+    .map((v,i) => ({ ...v, key:'v'+i, label:'路口 '+(i+1) }));
+  const ROBBER_TILE = TILES.find(t => t.terrain === 'desert') || TILES[0];
+  const BUILDINGS = [
+    { key:'b0', v:VERTICES[12], owner:0, city:false },
+    { key:'b1', v:VERTICES[24], owner:1, city:true },
+    { key:'b2', v:VERTICES[36], owner:2, city:false },
+    { key:'b3', v:VERTICES[46], owner:3, city:false },
+  ];
+  for (const b of BUILDINGS) occupied.add(b.v.key);
+  const ROADS = [
+    [VERTICES[12], VERTICES[13]],
+    [VERTICES[24], VERTICES[25]],
+    [VERTICES[36], VERTICES[37]],
+  ];
+
+  // =========================================================================
+  // 3. 相机：独立于状态的缩放 / 平移 / 棋盘中心；收到广播不重置
+  // =========================================================================
+  const boardSvg = document.getElementById('board');
+  const wrap = document.getElementById('board-wrap');
+  const camera = { zoom:1, panX:0, panY:0, base:1, W:1, H:1 };
+  const cameraLayer = svgNode('g', { id:'camera-layer' });
+  const layers = {};
+  for (const name of ['terrain','numbers','roads','buildings','robber','candidates','preview']) {
+    const g = svgNode('g', { id:'layer-'+name, 'data-layer':name });
+    layers[name] = g;
+    cameraLayer.appendChild(g);
+  }
+  boardSvg.appendChild(cameraLayer);
+
+  function svgNode(tag, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k,v] of Object.entries(attrs || {})) el.setAttribute(k, String(v));
+    return el;
+  }
+  function el(tag, cls, html) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html !== undefined) e.innerHTML = html;
+    return e;
+  }
+  /** 稳定 key 增量更新：只替换变化的节点，绝不整块 innerHTML 重建棋盘 */
+  function upsert(layer, key, html) {
+    let node = layer.querySelector('[data-key="'+key+'"]');
+    if (!node) {
+      node = svgNode('g', { 'data-key':key });
+      layer.appendChild(node);
+    }
+    node.innerHTML = html;
+  }
+  function clearLayer(layer) {
+    for (const node of [...layer.children]) {
+      if (!node.dataset.key) continue;
+      layer.removeChild(node);
+    }
+  }
+
+  function measure() {
+    const rect = wrap.getBoundingClientRect();
+    camera.W = Math.max(1, rect.width);
+    camera.H = Math.max(1, rect.height);
+    camera.base = Math.min(camera.W / 1080, camera.H / 760);
+    applyCamera();
+    renderCandidates();
+  }
+  function k() { return camera.base * camera.zoom; }
+  function worldToScreen(p) {
+    const scale = k();
+    return {
+      x: camera.W/2 + camera.panX + (p.x - MAP_CENTER.x) * scale,
+      y: camera.H/2 + camera.panY + (p.y - MAP_CENTER.y) * scale,
+    };
+  }
+  function applyCamera() {
+    const scale = k();
+    const tx = camera.W/2 + camera.panX - MAP_CENTER.x * scale;
+    const ty = camera.H/2 + camera.panY - MAP_CENTER.y * scale;
+    cameraLayer.setAttribute('transform', `translate(${tx} ${ty}) scale(${scale})`);
+    updateReadout();
+    renderCandidates();
+  }
+  function zoomAt(factor, screenX, screenY) {
+    const old = camera.zoom;
+    const next = Math.max(1, Math.min(3.2, old * factor));
+    if (next === old) return;
+    const ratio = next / old;
+    const qx = screenX - camera.W/2;
+    const qy = screenY - camera.H/2;
+    // 缩放围绕手势中心：pan' = q*(1 - ratio) + pan*ratio
+    camera.panX = qx * (1 - ratio) + camera.panX * ratio;
+    camera.panY = qy * (1 - ratio) + camera.panY * ratio;
+    camera.zoom = next;
+    applyCamera();
+  }
+  function resetCamera() {
+    camera.zoom = 1; camera.panX = 0; camera.panY = 0;
+    applyCamera();
+  }
+
+  // =========================================================================
+  // 4. 静态地形层：只在初始化与地形变化时绘制
+  // =========================================================================
+  const TERRAIN_COLOR = {
+    wood:'#5d8a52', brick:'#c07a55', sheep:'#9dbf6e', wheat:'#e0bd63', ore:'#8d9aa3', desert:'#e7d9b8',
+  };
+  function renderStatic() {
+    const L = layers.terrain;
+    for (const t of TILES) {
+      const pts = t.corners.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      upsert(L, t.key, `
+        <polygon points="${pts}" fill="${TERRAIN_COLOR[t.terrain]}" stroke="#6b5a48" stroke-width="3" stroke-linejoin="round"/>
+        <polygon points="${pts}" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1" transform="translate(0 -3)"/>
+      `);
+    }
+    const N = layers.numbers;
+    for (const t of TILES) {
+      if (t.number == null) continue;
+      const hot = t.number === 6 || t.number === 8;
+      const dots = Math.max(0, Math.min(5, 7 - Math.abs(7 - t.number)));
+      const dotRow = Array.from({length:dots}, (_,i) =>
+        `<circle cx="${t.cx + (i - (dots-1)/2)*6}" cy="${t.cy + 20}" r="2" fill="${hot?'#b23b2e':'#6d5c4c'}"/>`
+      ).join('');
+      upsert(N, 'n'+t.key, `
+        <circle cx="${t.cx}" cy="${t.cy}" r="19" fill="#fffaf1" stroke="#6b5a48" stroke-width="2"/>
+        <text x="${t.cx}" y="${t.cy+6}" text-anchor="middle" font-size="19" font-weight="700"
+              fill="${hot?'#b23b2e':'#2f241b'}" font-family="system-ui,sans-serif">${t.number}</text>
+        ${dotRow}
+      `);
+    }
+    const RD = layers.roads;
+    ROADS.forEach((pair,i) => {
+      upsert(RD, 'r'+i, `<line x1="${pair[0].x}" y1="${pair[0].y}" x2="${pair[1].x}" y2="${pair[1].y}"
+        stroke="#6b5a48" stroke-width="10" stroke-linecap="round" opacity=".9"/>`);
+    });
+  }
+
+  // =========================================================================
+  // 5. 动态层：建筑 / 强盗 / 候选 / 预览，按稳定 key 更新
+  // =========================================================================
+  function renderDynamic() {
+    const B = layers.buildings;
+    BUILDINGS.forEach(b => {
+      const c = `--p${b.owner+1}`;
+      const fill = `var(${c})`;
+      const shape = b.city
+        ? `<path d="M ${b.v.x-13} ${b.v.y+9} L ${b.v.x-13} ${b.v.y-6} L ${b.v.x} ${b.v.y-17} L ${b.v.x+13} ${b.v.y-6} L ${b.v.x+13} ${b.v.y+9} Z" fill="${fill}" stroke="#4a3a2a" stroke-width="2.5"/>`
+        : `<path d="M ${b.v.x-12} ${b.v.y+9} L ${b.v.x} ${b.v.y-12} L ${b.v.x+12} ${b.v.y+9} Z" fill="${fill}" stroke="#4a3a2a" stroke-width="2.5"/>`;
+      upsert(B, b.key, shape + `<circle cx="${b.v.x}" cy="${b.v.y+2}" r="2" fill="#4a3a2a"/>`);
+    });
+    const RB = layers.robber;
+    const rt = S && S.robberMoved ? TILES[3] : ROBBER_TILE;
+    upsert(RB, 'robber', `
+      <ellipse cx="${rt.cx}" cy="${rt.cy+14}" rx="12" ry="4" fill="rgba(47,36,27,.25)"/>
+      <path d="M ${rt.cx-8} ${rt.cy+8} L ${rt.cx-8} ${rt.cy-8} Q ${rt.cx} ${rt.cy-20} ${rt.cx+8} ${rt.cy-8} L ${rt.cx+8} ${rt.cy+8} Z"
+            fill="#3b3b42" stroke="#1e1e24" stroke-width="2"/>
+    `);
+  }
+
+  function candidatesFor() {
+    if (!S) return [];
+    if (S.pickMode === 'tile') {
+      return TILES.filter(t => t !== ROBBER_TILE).map(t => ({
+        key:t.key, kind:'tile', x:t.cx, y:t.cy, label:'地块 '+t.terrain,
+      }));
+    }
+    if (S.pickMode === 'vertex') {
+      return VERTICES.filter(v => !occupied.has(v.key)).map(v => ({
+        key:v.key, kind:'vertex', x:v.x, y:v.y, label:v.label,
+      }));
+    }
+    return [];
+  }
+  function renderCandidates() {
+    const L = layers.candidates;
+    clearLayer(L);
+    if (!S || !S.pickMode) return;
+    const r = 4 / k();   // 屏幕半径恒为 4 CSS px，不随 SVG 一起缩小
+    for (const c of candidatesFor()) {
+      upsert(L, c.key, `<circle cx="${c.x}" cy="${c.y}" r="${r}" fill="#fffaf1" stroke="#b5651d" stroke-width="${2/k()}" opacity=".9"/>`);
+    }
+    renderPreview();
+  }
+  function renderPreview() {
+    const L = layers.preview;
+    clearLayer(L);
+    if (!selected) return;
+    const r = 15 / k();
+    // 虚影：虚线轮廓，不画成已建成建筑
+    upsert(L, 'preview', `
+      <circle cx="${selected.x}" cy="${selected.y}" r="${r}" fill="rgba(181,101,29,.18)"
+              stroke="#b5651d" stroke-width="${3/k()}" stroke-dasharray="${6/k()} ${4/k()}"/>
+      <path d="M ${selected.x-10/k()} ${selected.y+8/k()} L ${selected.x} ${selected.y-11/k()} L ${selected.x+10/k()} ${selected.y+8/k()} Z"
+            fill="none" stroke="#b5651d" stroke-width="${2.5/k()}" stroke-dasharray="${4/k()} ${3/k()}"/>
+    `);
+  }
+
+  // =========================================================================
+  // 6. Pointer Events 手势：单指平移、双指缩放、阈值区分点选与拖动
+  // =========================================================================
+  const pointers = new Map();
+  let gesture = null;
+
+  function localPoint(e) {
+    const rect = wrap.getBoundingClientRect();
+    return { x:e.clientX - rect.left, y:e.clientY - rect.top };
+  }
+  function onDown(e) {
+    if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+    wrap.setPointerCapture?.(e.pointerId);
+    const p = localPoint(e);
+    pointers.set(e.pointerId, p);
+    if (pointers.size === 1) {
+      gesture = { start:p, last:p, moved:0, multi:false, pinchDist:0, pinchMid:null };
+    } else {
+      gesture.multi = true;
+      const pts = [...pointers.values()];
+      gesture.pinchDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      gesture.pinchMid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
+    }
+  }
+  function onMove(e) {
+    if (!pointers.has(e.pointerId)) return;
+    const p = localPoint(e);
+    const prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, p);
+    if (!gesture) return;
+    if (pointers.size >= 2) {
+      const pts = [...pointers.values()];
+      const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      const mid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
+      if (gesture.pinchDist > 0) zoomAt(dist / gesture.pinchDist, mid.x, mid.y);
+      // 双指整体位移也带动平移
+      if (gesture.pinchMid) {
+        camera.panX += mid.x - gesture.pinchMid.x;
+        camera.panY += mid.y - gesture.pinchMid.y;
+        applyCamera();
+      }
+      gesture.pinchDist = dist; gesture.pinchMid = mid; gesture.multi = true;
+      return;
+    }
+    const dx = p.x - gesture.last.x, dy = p.y - gesture.last.y;
+    gesture.moved += Math.hypot(dx, dy);
+    if (gesture.moved > DRAG_THRESHOLD_PX) {
+      camera.panX += dx; camera.panY += dy;
+      applyCamera();
+    }
+    gesture.last = p;
+  }
+  function onUp(e) {
+    if (!pointers.has(e.pointerId)) return;
+    const wasSingle = pointers.size === 1;
+    pointers.delete(e.pointerId);
+    try { wrap.releasePointerCapture?.(e.pointerId); } catch (_) {}
+    if (gesture && wasSingle && !gesture.multi && gesture.moved <= DRAG_THRESHOLD_PX) {
+      const p = localPoint(e);
+      handleTap(p);
+    }
+    if (pointers.size === 0) gesture = null;
+    else if (pointers.size === 1) {
+      const p = [...pointers.values()][0];
+      gesture = { start:p, last:p, moved:DRAG_THRESHOLD_PX+1, multi:true, pinchDist:0, pinchMid:null };
+    }
+  }
+  function onCancel(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) gesture = null;
+  }
+
+  wrap.addEventListener('pointerdown', onDown);
+  wrap.addEventListener('pointermove', onMove);
+  wrap.addEventListener('pointerup', onUp);
+  wrap.addEventListener('pointercancel', onCancel);
+  wrap.addEventListener('lostpointercapture', onCancel);
+  window.addEventListener('blur', () => { pointers.clear(); gesture = null; });
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const p = localPoint(e);
+    zoomAt(e.deltaY < 0 ? 1.12 : 1/1.12, p.x, p.y);
+  }, { passive:false });
+
+  function handleTap(p) {
+    const list = candidatesFor().map(c => ({ ...c, s:worldToScreen(c), d:0 }))
+      .map(c => ({ ...c, d:Math.hypot(c.s.x - p.x, c.s.y - p.y) }))
+      .sort((a,b) => a.d - b.d);
+    if (list.length === 0 || list[0].d > MAX_HIT_PX) {
+      toast('这里没有合法位置');
+      return;
+    }
+    // 歧义：前两名太接近 → 不替用户选，给候选按钮
+    if (list[1] && (list[0].d - list[1].d) < AMBIGUITY_PX && list[1].d <= MAX_HIT_PX) {
+      ambiguity = [list[0], list[1]];
+      selected = null;
+      renderPreview();
+      renderConfirmBar();
+      toast('两个位置很接近，请明确选择');
+      return;
+    }
+    chooseCandidate(list[0]);
+  }
+  function chooseCandidate(c) {
+    selected = { key:c.key, kind:c.kind, x:c.x, y:c.y, label:c.label };
+    ambiguity = null;
+    app.dataset.picking = '1';   // 选点时收起大抽屉
+    renderPreview();
+    renderConfirmBar();
+  }
+  function cancelPick(reason) {
+    selected = null; ambiguity = null;
+    app.dataset.picking = '0';
+    renderPreview(); renderConfirmBar();
+    if (reason) toast(reason);
+  }
+
+  // =========================================================================
+  // 7. 面板渲染
+  // =========================================================================
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove('show'), 1900);
+  }
+  function costText(cost) {
+    return Object.entries(cost).map(([r,n]) => RES[r].short + n).join(' · ');
+  }
+  function shortage(cost, h) {
+    return Object.entries(cost).filter(([r,n]) => (h[r]||0) < n)
+      .map(([r,n]) => `${RES[r].label}还差 ${n-(h[r]||0)}`).join('、');
+  }
+  function renderPlayers() {
+    const strip = document.getElementById('playerstrip');
+    strip.innerHTML = '';
+    PLAYERS.forEach((p,i) => {
+      const pending = S && S.discard && S.peersPending && S.peersPending.includes(i);
+      const chip = el('div','pchip');
+      chip.dataset.color = p.color;
+      if (S && S.current === i) chip.dataset.current = '1';
+      chip.innerHTML = `<span class="swatch" style="background:var(--p${i+1})"></span>
+        <span>${p.name}</span>
+        <span class="pnum">${p.hand}张/${p.score}分</span>
+        ${pending?'<span class="pending">待弃牌</span>':''}`;
+      strip.appendChild(chip);
+    });
+  }
+  function renderResources() {
+    const grid = document.getElementById('res-grid');
+    grid.innerHTML = '';
+    for (const r of RES_KEYS) {
+      const row = el('div','res');
+      row.innerHTML = `<span class="ico" style="background:${RES[r].color}">${RES[r].short}</span>
+        <span>${RES[r].label}</span><span class="n">${hand[r]||0}</span>`;
+      grid.appendChild(row);
+    }
+    document.getElementById('hand-total').textContent = RES_KEYS.reduce((a,r)=>a+(hand[r]||0),0);
+  }
+  function actButton(label, opts) {
+    const b = el('button','act-btn');
+    b.innerHTML = `<span>${label}</span>${opts.badge!==undefined?`<span class="badge">${opts.badge}</span>`:''}`;
+    if (opts.pressed) b.setAttribute('aria-pressed','true');
+    if (opts.disabled) b.disabled = true;
+    b.addEventListener('click', opts.onClick);
+    return b;
+  }
+  function renderActions() {
+    const list = document.getElementById('act-list');
+    list.innerHTML = '';
+    const blockedBuild = S.discard;
+    const blockedDev = S.discard || S.robberPending;
+    const blockedTrade = S.discard;
+    list.appendChild(actButton('发展卡 · 3 张', {
+      disabled:blockedDev,
+      onClick:() => openDrawer('dev'),
+    }));
+    list.appendChild(actButton('建造 / 兑换', {
+      pressed:S.state === 'build',
+      disabled:blockedBuild,
+      onClick:() => setState(S.robberPending ? 'robber-build' : 'build'),
+    }));
+    list.appendChild(actButton('银行 / 借港', {
+      disabled:blockedBuild,
+      onClick:() => openDrawer('bank'),
+    }));
+    list.appendChild(actButton('交易' + (S.offers.length ? '' : ''), {
+      badge:S.offers.filter(o=>!o.expired).length || undefined,
+      disabled:blockedTrade,
+      onClick:() => openDrawer('offers'),
+    }));
+    if (S.robberPending) {
+      list.appendChild(actButton('强盗待移动 · 去处理', {
+        badge:'!', onClick:() => openDrawer('robber'),
+      }));
+    }
+    document.getElementById('detail-content').innerHTML =
+      log.slice(-5).reverse().map(x => `<div>· ${x}</div>`).join('') || '<div>暂无动作</div>';
+    renderPinned();
+  }
+  function renderPinned() {
+    const pinned = document.getElementById('act-pinned');
+    pinned.innerHTML = '';
+    if (S.robberPending) {
+      pinned.appendChild(el('div','blocked-reason','结束回合前必须完成强盗结算；发展卡需等强盗移动后恢复。'));
+    }
+    if (S.discard) {
+      pinned.appendChild(el('div','blocked-reason','有人尚未弃牌：建造、交易、兑换与发展卡暂停。'));
+    }
+    const row = el('div','pinned-row');
+    const roll = el('button','btn','掷骰');
+    roll.disabled = S.rolled;
+    roll.addEventListener('click', () => toast('原型：点数由服务端裁决，本地不生成假结算'));
+    const end = el('button','btn primary','结束回合');
+    end.disabled = !S.rolled || S.robberPending || S.discard;
+    end.title = S.robberPending ? '强盗尚未移动' : (S.discard ? '有人尚未弃牌' : (S.rolled ? '' : '本回合尚未掷骰'));
+    end.addEventListener('click', () => toast('原型：真实实现须先确认，再提交服务端'));
+    row.appendChild(roll); row.appendChild(end);
+    pinned.appendChild(row);
+  }
+  function renderSituation() {
+    const s = document.getElementById('situation');
+    s.innerHTML = S.situation;
+    s.dataset.urgent = S.urgent ? '1' : '0';
+  }
+  function renderConfirmBar() {
+    const bar = document.getElementById('confirmbar');
+    bar.innerHTML = '';
+    if (ambiguity) {
+      bar.classList.add('show');
+      bar.appendChild(el('div','cinfo','<b>两个候选很接近</b><small>请明确选择一个，不会自动替你挑</small>'));
+      const row = el('div','candidates');
+      ambiguity.forEach((c,i) => {
+        const b = el('button','btn tiny', (i===0?'A · ':'B · ')+c.label);
+        b.addEventListener('click', () => chooseCandidate(c));
+        row.appendChild(b);
+      });
+      const cancel = el('button','btn tiny ghost','取消');
+      cancel.addEventListener('click', () => cancelPick());
+      row.appendChild(cancel);
+      bar.appendChild(row);
+      return;
+    }
+    if (!selected) { bar.classList.remove('show'); return; }
+    bar.classList.add('show');
+    const isTile = selected.kind === 'tile';
+    const cost = isTile ? null : COST_VILLAGE;
+    const short = cost ? shortage(cost, hand) : '';
+    const info = el('div','cinfo');
+    info.innerHTML = isTile
+      ? `<b>移动强盗到 ${selected.label}</b><small>确认后选择可偷玩家或「不抽牌」</small>`
+      : `<b>在此建造村庄？ ${selected.label}</b><small>成本 ${costText(cost)}${short?` · <span style="color:var(--danger)">${short}</span>`:''}</small>`;
+    bar.appendChild(info);
+    const ok = el('button','btn primary','确认');
+    ok.disabled = !!short;
+    ok.addEventListener('click', confirmPick);
+    const cancel = el('button','btn ghost','取消');
+    cancel.addEventListener('click', () => cancelPick('已撤销本地选择，服务器未发生任何变化'));
+    bar.appendChild(cancel); bar.appendChild(ok);
+  }
+  function confirmPick() {
+    if (!selected) return;
+    if (selected.kind === 'vertex') {
+      for (const [r,n] of Object.entries(COST_VILLAGE)) hand[r] = (hand[r]||0) - n;
+      log.push(`在 ${selected.label} 建成村庄（原型本地预览）`);
+      toast('已确认预览；真实实现须等服务端 STATE 才更新资源');
+    } else {
+      S.robberMoved = true;
+      log.push('强盗移动完成（原型本地预览）');
+      toast('强盗已处理；真实实现以服务端结算为准');
+    }
+    occupied.add(selected.key);
+    cancelPick();
+    renderResources(); renderActions(); renderDynamic(); renderCandidates();
+  }
+
+  // ---------- 抽屉 ----------
+  function openDrawer(mode) {
+    drawerMode = mode;
+    const d = document.getElementById('drawer');
+    d.classList.add('open');
+    renderDrawer();
+  }
+  function closeDrawer() {
+    drawerMode = null;
+    document.getElementById('drawer').classList.remove('open');
+  }
+  function renderDrawer() {
+    if (!drawerMode) return;
+    const title = document.getElementById('drawer-title');
+    const body = document.getElementById('drawer-body');
+    const foot = document.getElementById('drawer-foot');
+    body.innerHTML = ''; foot.innerHTML = '';
+    if (drawerMode === 'offers') {
+      title.textContent = `待处理交易 · ${S.offers.filter(o=>!o.expired).length}`;
+      renderOffers(body, foot);
+    } else if (drawerMode === 'help') {
+      title.textContent = '帮助与操作说明';
+      body.innerHTML = `
+        <div class="help-block"><b>棋盘操作</b>单指拖动平移、双指缩放；右上 + / − / ⌂ 也能缩放与回到全局。拖动超过 ${DRAG_THRESHOLD_PX} CSS px 视为拖动，抬手不会触发建造。</div>
+        <div class="help-block"><b>点选与确认</b>轻点附近合法候选会先显示虚影与成本，按「确认」才提交；「取消」只撤销本地选择。两个候选太近时会让你明确选一个。</div>
+        <div class="help-block"><b>村庄成本</b>${costText(COST_VILLAGE)}。银行兑换按自己港口比例，同种资源不能互换。</div>
+        <div class="help-block"><b>掷 7</b>8 张起弃一半、向上取整，自己选牌；全员弃完后恢复交易，强盗未移动前不能结束回合或使用发展卡。</div>
+        <div class="help-block"><b>提示</b>触屏没有 hover，所有说明都在「?」里；拒绝原因会显示在对应操作附近，不只写进日志。</div>`;
+      const close = el('button','btn','知道了');
+      close.addEventListener('click', closeDrawer);
+      foot.appendChild(close);
+    } else if (drawerMode === 'dev') {
+      title.textContent = '发展卡';
+      body.innerHTML = `
+        <div class="devcard"><b>骑士 ×1</b><br>可移动强盗；本回合强盗待处理时禁用。</div>
+        <div class="devcard unavailable"><b>胜利点 ×1</b><br>计入分数，不需要打出。</div>
+        <div class="devcard unavailable"><b>本回合新购入 ×1</b><br>当回合购入的卡下回合起可用。</div>`;
+      const buy = el('button','btn primary','购买发展卡（预览）');
+      buy.addEventListener('click', () => toast('原型：成本预览后再确认，服务端裁决'));
+      foot.appendChild(buy);
+    } else if (drawerMode === 'bank') {
+      title.textContent = '银行 / 借港代换';
+      body.innerHTML = `
+        <div class="help-block"><b>银行或自有港口</b>选交出资源 → 显示实际比例 → 选得到资源 → 确认。同种兑换禁用，比例复用规则计算。</div>
+        <div class="help-block"><b>借港代换</b>当前玩家选受益人、资源与结果；按当前玩家港口比例扣/加受益人资源，不自动收租、不请求对方隐藏手牌。</div>
+        <div class="help-block"><b>当前比例</b>银行 4:1 · 自有 3:1 港口 3:1 · 2:1 港口 2:1。</div>`;
+      const close = el('button','btn','关闭');
+      close.addEventListener('click', closeDrawer);
+      foot.appendChild(close);
+    } else if (drawerMode === 'robber') {
+      title.textContent = '强盗待办';
+      body.innerHTML = `
+        <div class="help-block"><b>本回合结束前必须完成</b>可暂时收起去交易或建造，再回来处理。选择地块后确认，再选可偷玩家或「不抽牌」。</div>
+        <div class="help-block"><b>当前限制</b>建造、银行、借港与玩家交易已恢复；发展卡与结束回合仍禁用（服务端也会拒绝）。</div>`;
+      const go = el('button','btn primary','去选地块');
+      go.addEventListener('click', () => { closeDrawer(); setState('robber'); toast('点选一个地块，先预览再确认'); });
+      foot.appendChild(go);
+    }
+  }
+  function renderOffers(body, foot) {
+    if (S.offers.length === 0) {
+      body.appendChild(el('div','hint','当前没有待处理报价。'));
+    }
+    S.offers.forEach(o => {
+      const card = el('div','offer-card' + (o.expired?' expired':''));
+      // 收件人视角转换：发起人的 give 是「我收到」，get 是「我付出」
+      const mine = o.to === 0;
+      const iGive = mine ? o.get : o.give;
+      const iGet = mine ? o.give : o.get;
+      const fmt = (m) => Object.entries(m).map(([r,n]) => `${RES[r].short}×${n}`).join(' + ') || '无';
+      card.innerHTML = `
+        <h4>${PLAYERS[o.from].name} → ${PLAYERS[o.to].name}${o.expired?' · 已过期':''}</h4>
+        <div class="offer-line">我付出：${fmt(iGive)}</div>
+        <div class="offer-line">我收到：${fmt(iGet)}</div>
+        <div class="offer-meta"><span class="cd" data-cd="${o.id}">剩余 —</span><span>按创建时间排序</span></div>
+        <div class="offer-actions">
+          <button class="btn primary" data-act="accept" data-id="${o.id}" ${o.expired?'disabled':''}>接受</button>
+          <button class="btn" data-act="reject" data-id="${o.id}" ${o.expired?'disabled':''}>拒绝</button>
+        </div>`;
+      body.appendChild(card);
+      card.querySelector('[data-act="accept"]').addEventListener('click', () => {
+        if (o.expired) return toast('报价已过期，需返回列表');
+        toast('原型：真实实现须携带 offerId 由服务端串行裁决');
+      });
+      card.querySelector('[data-act="reject"]').addEventListener('click', () => {
+        if (o.expired) return toast('报价已过期，需返回列表');
+        toast('原型：拒绝也必须携带 offerId');
+      });
+    });
+    const back = el('button','btn','返回列表');
+    back.addEventListener('click', () => { closeDrawer(); renderActions(); });
+    foot.appendChild(back);
+    const send = el('button','btn primary', S.cooldownLeft > 0 ? `发送冷却 ${S.cooldownLeft.toFixed(1)}s` : '发送新报价');
+    send.disabled = S.cooldownLeft > 0;
+    send.addEventListener('click', () => toast('原型：重发需再次主动点击，不会自动续期'));
+    foot.appendChild(send);
+    updateCountdowns();
+  }
+  function updateCountdowns() {
+    document.querySelectorAll('[data-cd]').forEach(node => {
+      const o = S.offers.find(x => x.id === node.dataset.cd);
+      if (!o) return;
+      node.textContent = o.expired ? '已过期' : `剩余 ${(o.ttl/1000).toFixed(1)}s`;
+    });
+    const send = [...document.querySelectorAll('#drawer-foot .btn')].find(b => /发送/.test(b.textContent));
+    if (send) {
+      send.disabled = S.cooldownLeft > 0;
+      send.textContent = S.cooldownLeft > 0 ? `发送冷却 ${S.cooldownLeft.toFixed(1)}s` : '发送新报价';
+    }
+  }
+
+  // ---------- 弃牌 ----------
+  function renderDiscard() {
+    const sheet = document.getElementById('discard-sheet');
+    if (!S.discard) { sheet.classList.remove('show'); return; }
+    sheet.classList.add('show');
+    document.getElementById('discard-need').textContent = S.discardNeed;
+    const rows = document.getElementById('discard-rows');
+    rows.innerHTML = '';
+    for (const r of RES_KEYS) {
+      const row = el('div','discard-row');
+      const name = el('span','', RES[r].label + `（剩 ${hand[r]||0}）`);
+      const minus = el('button','stepper','−'); minus.setAttribute('aria-label', `减少${RES[r].label}`);
+      const val = el('span','val', String(discardPick[r]||0));
+      const plus = el('button','stepper','+'); plus.setAttribute('aria-label', `增加${RES[r].label}`);
+      minus.addEventListener('click', () => { discardPick[r] = Math.max(0,(discardPick[r]||0)-1); renderDiscard(); });
+      plus.addEventListener('click', () => {
+        if ((discardPick[r]||0) >= (hand[r]||0)) return toast('不能超过手上剩余数量');
+        discardPick[r] = (discardPick[r]||0)+1; renderDiscard();
+      });
+      row.append(name, minus, val, plus);
+      rows.appendChild(row);
+    }
+    const total = RES_KEYS.reduce((a,r)=>a+(discardPick[r]||0),0);
+    document.getElementById('discard-selected').textContent = total;
+    document.getElementById('discard-submit').disabled = total !== S.discardNeed;
+    document.getElementById('peer-pending').textContent =
+      '其他玩家：' + PLAYERS.filter((p,i)=>S.peersPending.includes(i)).map(p=>p.name).join('、') + ' 尚未完成（看不到他们选了什么）';
+  }
+
+  // ---------- 竖屏 ----------
+  function renderPortrait() {
+    document.getElementById('portrait-status').innerHTML = `
+      <div>连接：已同步 · 房间 demo</div>
+      <div>当前回合：${S.current>=0?PLAYERS[S.current].name+'（'+PLAYERS[S.current].score+' 分）':'等待开局'}</div>
+      <div>我的手牌：${RES_KEYS.reduce((a,r)=>a+(hand[r]||0),0)} 张</div>
+      <div>待处理：${S.robberPending?'强盗待移动':(S.discard?'需要弃牌':(S.offers.length?S.offers.length+' 条报价':'无'))}</div>`;
+  }
+
+  // =========================================================================
+  // 8. 状态切换 / 模拟广播 / 调试
+  // =========================================================================
+  function setState(name) {
+    // 'robber-build' 是「强盗待办时先去建造」的演示：保留 robberPending，只切选择模式
+    const base = name === 'robber-build' ? 'robber' : name;
+    if (!STATES[base]) return;
+    S = { ...STATES[base], state:base };
+    S.offers = STATES[base].offers.map(o => ({ ...o, expired:false }));
+    S.peersPending = STATES[base].peersPending ? [...STATES[base].peersPending] : [];
+    S.discardNeed = STATES[base].discardNeed || 0;
+    S.cooldownLeft = STATES[base].cooldownLeft || 0;
+    if (name === 'robber-build') {
+      S.pickMode = 'vertex';
+      S.situation = '<b>强盗待办中 · 建造</b> · 可暂时放下强盗任务去建造，回来再处理';
+      log.push('强盗任务暂时收起，去建造');
+    } else {
+      log.push(`切到状态：${S.label}`);
+    }
+    hand = { ...STATES[base].hand };
+    discardPick = {};
+    occupied = new Set(BUILDINGS.map(b => b.v.key));
+    selected = null; ambiguity = null;
+    app.dataset.state = base;
+    app.dataset.picking = '0';
+    closeDrawer();
+    clearOfferTimers();
+    S.offers.forEach(o => {
+      const timer = setInterval(() => {
+        if (o.expired) return;
+        o.ttl -= 100;
+        if (o.ttl <= 0) {
+          o.ttl = 0; o.expired = true;   // 过期后禁用原操作，不让下一条按钮顶上来
+          log.push('报价 '+o.id+' 已过期');
+          renderDrawer();
+        }
+        updateCountdowns();
+      }, 100);
+      offerTimers.set(o.id, timer);
+    });
+    if (S.cooldownLeft > 0) cooldownUntil = Date.now() + S.cooldownLeft*1000;
+    else cooldownUntil = 0;
+    renderPlayers(); renderResources(); renderActions(); renderSituation();
+    renderDynamic(); renderCandidates(); renderConfirmBar(); renderDiscard(); renderPortrait();
+    document.querySelectorAll('[data-state-btn]').forEach(b =>
+      b.classList.toggle('on', b.dataset.stateBtn === base));
+    updateReadout();
+  }
+  function clearOfferTimers() {
+    for (const t of offerTimers.values()) clearInterval(t);
+    offerTimers.clear();
+  }
+  function simulateBroadcast() {
+    broadcastCount += 1;
+    log.push(`收到 STATE #${broadcastCount}（他人动作）`);
+    // 关键：不重置相机、不重建 SVG 容器、不触发建造
+    renderDynamic(); renderActions(); renderResources();
+    // 收到更新后复查当前选点合法性
+    if (selected && occupied.has(selected.key)) {
+      cancelPick('该位置已被他人占用，预览已撤销并说明原因');
+    }
+    toast(`已处理 STATE #${broadcastCount}：相机保持 zoom ${camera.zoom.toFixed(2)}，未触发建造`);
+    updateReadout();
+  }
+  function invalidateCurrent() {
+    if (!selected) return toast('先点选一个候选位置');
+    occupied.add(selected.key);
+    log.push('模拟：服务端更新使当前候选失效');
+    cancelPick('该位置已失效，预览被清除并给出原因（不会悄悄改选别处）');
+    renderCandidates();
+  }
+  function updateReadout() {
+    const zoom = camera.zoom.toFixed(2);
+    const pan = `${camera.panX.toFixed(0)},${camera.panY.toFixed(0)}`;
+    const text = `视口 ${Math.round(innerWidth)}×${Math.round(innerHeight)} | dpr ${devicePixelRatio} | zoom ${zoom} pan ${pan} | STATE #${broadcastCount} | ${S?S.label:'—'}`;
+    const dev = document.getElementById('dev-readout');
+    if (dev) dev.textContent = text;
+    const badge = document.getElementById('viewport-badge');
+    if (badge) badge.textContent = `${Math.round(innerWidth)}×${Math.round(innerHeight)} CSS px · dpr ${devicePixelRatio}`;
+  }
+
+  // ---------- 事件绑定 ----------
+  document.getElementById('zoom-in').addEventListener('click', () => zoomAt(1.25, camera.W/2, camera.H/2));
+  document.getElementById('zoom-out').addEventListener('click', () => zoomAt(1/1.25, camera.W/2, camera.H/2));
+  document.getElementById('zoom-reset').addEventListener('click', resetCamera);
+  document.getElementById('btn-help').addEventListener('click', () => openDrawer('help'));
+  document.getElementById('btn-motion').addEventListener('click', (e) => {
+    reduceMotion = !reduceMotion;
+    app.dataset.reduceMotion = reduceMotion ? '1' : '0';
+    e.currentTarget.setAttribute('aria-pressed', String(reduceMotion));
+    toast(reduceMotion ? '已减少动态效果：保留静态高亮与文字' : '已恢复动效');
+  });
+  document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+  document.getElementById('discard-clear').addEventListener('click', () => { discardPick = {}; renderDiscard(); });
+  document.getElementById('discard-submit').addEventListener('click', () => {
+    const total = RES_KEYS.reduce((a,r)=>a+(discardPick[r]||0),0);
+    if (total !== S.discardNeed) return;
+    for (const r of RES_KEYS) hand[r] = (hand[r]||0) - (discardPick[r]||0);
+    log.push(`提交弃牌 ${total} 张（自选）`);
+    S.discard = false; S.peersPending = [];
+    renderDiscard(); renderResources(); renderActions();
+    toast('已提交，等待其他人完成；不重复提交');
+  });
+  document.getElementById('portrait-dismiss').addEventListener('click', () => {
+    document.getElementById('portrait-gate').classList.add('hide');
+    toast('已收起提示；本次不会反复弹出');
+  });
+  document.getElementById('portrait-help').addEventListener('click', () => openDrawer('help'));
+  document.querySelectorAll('[data-state-btn]').forEach(b =>
+    b.addEventListener('click', () => setState(b.dataset.stateBtn)));
+  document.getElementById('dev-broadcast').addEventListener('click', simulateBroadcast);
+  document.getElementById('dev-invalidate').addEventListener('click', invalidateCurrent);
+
+  window.addEventListener('resize', () => {
+    measure();       // 重新计算可视区域，不重置相机、不丢待确认选择
+    updateReadout();
+  });
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { measure(); updateReadout(); }, 120);
+  });
+  setInterval(() => {
+    if (cooldownUntil) {
+      S.cooldownLeft = Math.max(0, (cooldownUntil - Date.now())/1000);
+      if (S.cooldownLeft === 0) cooldownUntil = 0;
+      updateCountdowns();
+    }
+  }, 100);
+
+  // ---------- 启动 ----------
+  // 可选参数（供视口核对页做确定性截图）：
+  //   autopick=1        自动选一个合法候选，展示「建造预览 + 确认条」
+  //   drawer=offers|... 自动展开指定抽屉，展示交易列表 / 帮助 / 发展卡等
+  renderStatic();
+  setState(params.get('state') || 'default');
+  measure();
+  if (params.get('autopick') === '1') {
+    const list = candidatesFor();
+    const c = list[Math.floor(list.length / 2)];
+    if (c) chooseCandidate(c);
+  }
+  if (params.get('drawer')) openDrawer(params.get('drawer'));
+})();
+</script>
+</body>
+</html>
