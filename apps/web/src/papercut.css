@@ -1,0 +1,589 @@
+/*
+ * 晴湾纸雕 · 桌面主题层（docs/21-desktop-integration.md）
+ *
+ * 最后加载：覆盖 styles.css / layout.css 的呈现，不改它们的源码（测试契约保持）。
+ * 设计基准：design/desktop/css/papercut.css + handoff/DESIGN-SPEC.md。
+ * 范围：1280×720 及以上桌面。低于 1180px 给提示，不做手机适配、不自动旋转。
+ *
+ * 纪律：
+ *  - 只改「看」与「摆」，不改任何规则 / 协议 / 网络恢复 / 棋盘几何；
+ *  - 所有 DOM id、data-*、class 契约保持，事件仍由 ui.ts / panels.ts 绑定；
+ *  - 动画只做 transform/opacity，收到 STATE 立即 render()，动画不延迟状态更新；
+ *  - prefers-reduced-motion / [data-reduce-motion=1] 时关闭动效。
+ */
+
+/* ---------------------------------------------------------------- 1. tokens */
+:root {
+  --pc-ink: #23372F;
+  --pc-ink-soft: #4E6257;
+  --pc-muted: #56685C;
+  --pc-paper: #FFF6E2;
+  --pc-paper-2: #F2E3C6;
+  --pc-paper-deep: #E6D2AB;
+  --pc-rule: rgba(35, 55, 47, .16);
+  --pc-edge: #2A4036;
+  --pc-accent: #E9A93B;
+  --pc-accent-ink: #2B332B;
+  --pc-hot: #B84E37;
+  --pc-hot-fill: #D9654C;
+  --pc-ok: #3E7454;
+  --pc-focus: #D9654C;
+  --pc-a: #C9503F;
+  --pc-b: #3B6FA0;
+  --pc-c: #B4741D;
+  --pc-d: #4C8B67;
+  --pc-table:
+    radial-gradient(1100px 700px at 15% -10%, #3D9394, transparent 62%),
+    radial-gradient(900px 700px at 100% 110%, #2A7C7D, transparent 58%),
+    linear-gradient(180deg, #2A7A80, #175A62 60%, #12484F);
+  --pc-sea:
+    radial-gradient(ellipse at 50% 42%, #7AC8BF 0%, #44A0A0 38%, #2B7E84 72%, #1D6971 100%);
+  --pc-shadow: 0 4px 0 rgba(42, 64, 54, .22), 0 10px 24px rgba(20, 45, 40, .18);
+  --pc-shadow-sm: 0 2px 0 rgba(42, 64, 54, .18), 0 5px 12px rgba(20, 45, 40, .12);
+  --pc-font: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --pc-font-num: "Avenir Next", "Futura", "Inter", "PingFang SC", sans-serif;
+  --pc-top-h: 78px;
+  --pc-shelf-h: 146px;
+  --pc-rail-w: 324px;
+  --pc-gap: 18px;
+  --pc-pad: 22px;
+}
+
+body[data-theme="papercut"] {
+  margin: 0;
+  background: var(--pc-table);
+  color: var(--pc-ink);
+  font-family: var(--pc-font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+body[data-theme="papercut"] * { box-sizing: border-box; }
+body[data-theme="papercut"] :focus-visible {
+  outline: 2px solid var(--pc-focus);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- 2. shell: 三行桌面布局 */
+body[data-theme="papercut"] .shell {
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: var(--pc-top-h) minmax(0, 1fr) var(--pc-shelf-h);
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+  background: transparent;
+  isolation: isolate;
+}
+/* 桌面 ≥1180px：撤销阶段 D 的 CSS 自转底座（手机逻辑保留，但不激活） */
+@media (min-width: 1180px) {
+  body[data-theme="papercut"] .shell[data-landscape-mode="css"] {
+    position: relative;
+    width: auto;
+    height: 100dvh;
+    transform: none;
+    transform-origin: 50% 50%;
+    padding: 0;
+    --ul-safe-top: 0px; --ul-safe-bottom: 0px;
+    --ul-safe-left: 0px; --ul-safe-right: 0px;
+  }
+}
+
+/* ---------------------------------------------------------------- 3. 顶栏 */
+body[data-theme="papercut"] .hdr.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--pc-gap);
+  height: var(--pc-top-h);
+  padding: 0 var(--pc-pad);
+  background: linear-gradient(180deg, #FFFAEE, #FFF3D9 62%, #F7E7C8);
+  border-bottom: 3px solid var(--pc-edge);
+  box-shadow: 0 4px 0 rgba(42, 64, 54, .14), 0 8px 20px rgba(0, 0, 0, .16);
+  z-index: 30;
+  overflow: hidden;
+}
+body[data-theme="papercut"] .brand { display: flex; align-items: center; gap: 9px; flex: none; }
+body[data-theme="papercut"] .brand-mark { color: var(--pc-hot); display: grid; place-items: center; filter: drop-shadow(0 1px 0 var(--pc-paper)); }
+body[data-theme="papercut"] .brand-copy { display: flex; flex-direction: column; line-height: 1.05; }
+body[data-theme="papercut"] .brand-copy b { font-size: 20px; font-weight: 800; letter-spacing: .04em; }
+body[data-theme="papercut"] .brand-copy em { font-family: var(--pc-font-num); font-size: 9px; font-style: normal; letter-spacing: .16em; color: var(--pc-muted); }
+
+body[data-theme="papercut"] .conn-chip {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  min-height: 30px; padding: 3px 11px;
+  border: 1.5px solid var(--pc-rule); border-radius: 999px;
+  background: var(--pc-paper-2); font-size: 11px; color: var(--pc-ink-soft);
+  white-space: nowrap;
+}
+body[data-theme="papercut"] .conn-chip .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pc-muted); box-shadow: inset 0 0 0 1.5px rgba(35,55,47,.25); }
+body[data-theme="papercut"] .conn-chip .dot.on { background: var(--pc-ok); box-shadow: 0 0 0 3px rgba(62,116,84,.2); }
+body[data-theme="papercut"] .conn-chip .dot.off { background: var(--pc-hot); }
+body[data-theme="papercut"] #room-id { font-family: var(--pc-font-num); font-weight: 700; letter-spacing: .06em; }
+
+body[data-theme="papercut"] .player-strip {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  overflow: hidden;
+}
+/* 玩家 chip：236×52 上限，四人并排；当前玩家黄色外圈 + 上浮 */
+body[data-theme="papercut"] .player-strip .player.pchip {
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 240px;
+  height: 52px; padding: 5px 9px;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--pc-paper);
+  border: 1.5px solid var(--pc-edge); border-radius: 13px;
+  box-shadow: 0 3px 0 var(--pc-paper-deep), 0 5px 12px rgba(20,45,40,.1);
+  overflow: hidden;
+}
+body[data-theme="papercut"] .player-strip .player.pchip.active.current {
+  border: 2.5px solid var(--pc-accent);
+  box-shadow: 0 3px 0 var(--pc-paper-deep), 0 0 0 3px rgba(233,169,59,.28), 0 6px 14px rgba(20,45,40,.16);
+  transform: translateY(-1px);
+}
+body[data-theme="papercut"] .player-strip .player .ava.pavatar {
+  width: 30px; height: 30px; flex: none; border-radius: 9px;
+  background: var(--pc, var(--pc-a));
+  border: 1.5px solid var(--pc-edge);
+  color: var(--pc-paper);
+  font-size: 15px; font-weight: 800;
+  display: grid; place-items: center;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.25);
+}
+body[data-theme="papercut"] .player-strip .player .pinfo { min-width: 0; flex: 1 1 0; }
+body[data-theme="papercut"] .player-strip .player .pname {
+  font-size: 13px; font-weight: 700; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 5px;
+}
+body[data-theme="papercut"] .player-strip .player .me-tag { font-size: 9px; font-weight: 700; color: var(--pc-accent-ink); background: var(--pc-accent); border-radius: 5px; padding: 0 4px; }
+body[data-theme="papercut"] .player-strip .player .pmeta { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--pc-muted); line-height: 1.3; white-space: nowrap; overflow: hidden; }
+body[data-theme="papercut"] .player-strip .player .metric { font-family: var(--pc-font-num); font-weight: 600; }
+body[data-theme="papercut"] .player-strip .player .pbadge { font-size: 9px; font-weight: 700; color: var(--pc-accent-ink); background: var(--pc-paper-2); border: 1px solid var(--pc-rule); border-radius: 999px; padding: 0 5px; }
+body[data-theme="papercut"] .player-strip .player .ptrack { display: none; }
+body[data-theme="papercut"] .player-strip .player .phand {
+  flex: none; font-family: var(--pc-font-num); font-size: 13px; font-weight: 800;
+  color: var(--pc-ink); background: var(--pc-paper-2); border: 1px solid var(--pc-rule);
+  border-radius: 8px; min-width: 24px; height: 24px; display: grid; place-items: center; padding: 0 5px;
+}
+body[data-theme="papercut"] .player-strip .player .phand[data-risk="1"],
+body[data-theme="papercut"] .player-strip .player.pchip.warn .phand { color: var(--pc-hot); background: #FFE8DD; border-color: var(--pc-hot-fill); }
+body[data-theme="papercut"] .player-strip .player .pscore { flex: none; font-family: var(--pc-font-num); font-size: 21px; font-weight: 800; line-height: 1; color: var(--pc-ink); }
+body[data-theme="papercut"] .player-strip .player .pscore small { display: none; }
+body[data-theme="papercut"] .player-strip .player .flag { display: none; }
+
+/* 回合盒 */
+body[data-theme="papercut"] .turn-chip {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  min-height: 46px; padding: 4px 12px 4px 6px;
+  background: var(--pc-paper); border: 1.5px solid var(--pc-edge); border-radius: 13px;
+  box-shadow: 0 3px 0 var(--pc-paper-deep);
+}
+body[data-theme="papercut"] .turn-ava { width: 32px; height: 32px; flex: none; border-radius: 9px; background: var(--c, var(--pc-a)); border: 1.5px solid var(--pc-edge); color: #fff; font-weight: 800; display: grid; place-items: center; }
+body[data-theme="papercut"] .turn-copy { display: flex; flex-direction: column; line-height: 1.15; }
+body[data-theme="papercut"] .turn-copy b { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+body[data-theme="papercut"] .turn-copy em { font-size: 10px; font-style: normal; color: var(--pc-hot); font-weight: 700; }
+body[data-theme="papercut"] .hdr-actions { display: flex; gap: 6px; flex: none; }
+body[data-theme="papercut"] .iconbtn {
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border: 1.5px solid var(--pc-edge); border-radius: 10px;
+  background: var(--pc-paper); color: var(--pc-ink);
+  box-shadow: 0 2px 0 var(--pc-paper-deep);
+  font-size: 16px; font-weight: 700; cursor: pointer;
+  display: grid; place-items: center;
+}
+body[data-theme="papercut"] .iconbtn:hover { background: #FFF3D8; }
+body[data-theme="papercut"] .iconbtn:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--pc-paper-deep); }
+body[data-theme="papercut"] .orientation-btn { display: none; }
+
+/* ---------------------------------------------------------------- 4. 主区 */
+body[data-theme="papercut"] .stage-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--pc-rail-w);
+  gap: var(--pc-gap);
+  padding: 0 var(--pc-pad) var(--pc-gap) var(--pc-pad);
+  min-height: 0;
+}
+/* 棋盘外框：纸边 + 圆角，海面由 SVG 自己铺 */
+body[data-theme="papercut"] .board-stage {
+  position: relative; min-width: 0; overflow: hidden;
+  background: var(--pc-sea);
+  border: 3px solid var(--pc-edge); border-radius: 20px;
+  box-shadow: 0 4px 0 rgba(42,64,54,.25), 0 14px 30px rgba(10,40,42,.28), inset 0 0 0 2px rgba(255,246,226,.28);
+}
+body[data-theme="papercut"] .board-stage::after { content: ''; display: none; }
+body[data-theme="papercut"] #board { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; touch-action: none; }
+
+/* 缩放工具：右下竖排圆形纸按钮 */
+body[data-theme="papercut"] .cam-tools { position: absolute; right: 16px; bottom: 16px; top: auto; z-index: 8; display: flex; flex-direction: column; gap: 8px; }
+body[data-theme="papercut"] .cam-btn {
+  width: 36px; height: 36px; min-width: 36px;
+  border: 1.5px solid var(--pc-edge); border-radius: 10px;
+  background: var(--pc-paper); color: var(--pc-ink);
+  box-shadow: 0 2px 0 var(--pc-paper-deep), 0 4px 10px rgba(10,40,42,.2);
+  font-size: 17px; font-weight: 800; cursor: pointer; display: grid; place-items: center;
+}
+body[data-theme="papercut"] .cam-btn:active { transform: translateY(1px); }
+
+/* 棋盘事件 slip：左下，两枚骰子 + 结果一句 */
+body[data-theme="papercut"] .board-event {
+  position: absolute; left: 18px; bottom: 18px; z-index: 6;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px 8px 10px;
+  background: var(--pc-paper); border: 2px solid var(--pc-edge); border-radius: 12px;
+  box-shadow: 0 2px 0 var(--pc-paper-deep), 0 6px 16px rgba(10,40,42,.22);
+  transform: rotate(-1.2deg);
+  max-width: 260px;
+}
+body[data-theme="papercut"] .event-dice { display: flex; gap: 4px; flex: none; }
+body[data-theme="papercut"] .event-dice .die {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: #FFF8E8; border: 2px solid var(--pc-edge);
+  color: var(--pc-ink); font-family: var(--pc-font-num); font-size: 15px; font-weight: 800;
+  display: grid; place-items: center;
+  box-shadow: 0 2px 0 rgba(42,64,54,.2);
+}
+body[data-theme="papercut"] .event-dice .die.rolling { animation: pc-tumble .45s ease-in-out; }
+body[data-theme="papercut"] .event-copy { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+body[data-theme="papercut"] .event-copy b { font-size: 9.5px; letter-spacing: .08em; color: var(--pc-muted); }
+body[data-theme="papercut"] .event-copy span { font-size: 11.5px; font-weight: 600; color: var(--pc-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 任务提示条 / 确认条 / toast：纸片 */
+/* 桌面：右栏任务卡是唯一主任务；棋盘上的 situation 条收起，避免同一信息重复两遍。
+   连接/核对等紧急反馈仍可经 toast 与事件 slip 的 feed 文案看到。 */
+body[data-theme="papercut"] .situation { display: none; }
+body[data-theme="papercut"] .situation[data-urgent="1"] {
+  display: block; position: absolute; left: 18px; top: 14px; bottom: auto; z-index: 9;
+  max-width: 300px; padding: 7px 12px;
+  border: 1.5px solid var(--pc-edge); border-left: 5px solid var(--pc-hot);
+  border-radius: 10px; background: rgba(255,246,226,.96);
+  box-shadow: var(--pc-shadow-sm); font-size: 11.5px; line-height: 1.5;
+}
+body[data-theme="papercut"] .situation[data-urgent="1"] { border-left-color: var(--pc-hot); }
+body[data-theme="papercut"] .situation b { color: var(--pc-hot); }
+body[data-theme="papercut"] .confirm-strip {
+  bottom: 18px; transform: translateX(-50%);
+  border: 2px solid var(--pc-edge); border-radius: 14px;
+  background: var(--pc-paper); box-shadow: var(--pc-shadow);
+  padding: 10px 14px; gap: 10px;
+}
+body[data-theme="papercut"] .confirm-info b { font-size: 14px; font-weight: 800; }
+body[data-theme="papercut"] .toast {
+  top: 14px; transform: translateX(-50%);
+  background: var(--pc-edge); color: var(--pc-paper);
+  border: 1.5px solid var(--pc-edge); border-radius: 999px;
+  padding: 9px 18px; font-size: 12.5px; font-weight: 600;
+  box-shadow: var(--pc-shadow-sm); opacity: 0;
+}
+body[data-theme="papercut"] .toast.show { opacity: 1; }
+
+/* 棋盘上的摆位/强盗/弃牌/报价条：保持紧凑、不遮棋盘中心（layout.css 的定位仍生效） */
+body[data-theme="papercut"] .board-stage .setupbar,
+body[data-theme="papercut"] .board-stage .robberbar,
+body[data-theme="papercut"] .board-stage .discard-panel {
+  background: var(--pc-paper); border: 1.5px solid var(--pc-edge); border-radius: 11px;
+  box-shadow: var(--pc-shadow-sm); color: var(--pc-ink);
+}
+body[data-theme="papercut"] .board-stage .offer-bar { display: none; } /* 桌面移到右栏 */
+
+/* ---------------------------------------------------------------- 5. 右栏：任务 / 报价 / 日志 */
+body[data-theme="papercut"] .rail {
+  position: relative; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  background: transparent; border: 0;
+}
+body[data-theme="papercut"] .rail-scroll {
+  flex: 1 1 0; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 0; touch-action: pan-y;
+}
+body[data-theme="papercut"] .rail-pinned { display: none; }  /* 桌面主动作在 #shelf */
+body[data-theme="papercut"] .rail-legacy { display: none; } /* 阶段 D 右栏手牌收起 */
+body[data-theme="papercut"] .rail-group {
+  background: var(--pc-paper); border: 1.5px solid var(--pc-edge); border-radius: 14px;
+  box-shadow: var(--pc-shadow-sm); padding: 12px 14px;
+}
+body[data-theme="papercut"] .rail-title {
+  font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--pc-muted);
+  margin: 0 0 8px; display: flex; align-items: center; justify-content: space-between;
+}
+body[data-theme="papercut"] .rail-count {
+  font-family: var(--pc-font-num); font-size: 11px; font-weight: 800;
+  background: var(--pc-accent); color: var(--pc-accent-ink);
+  border-radius: 999px; min-width: 20px; text-align: center; padding: 1px 6px;
+}
+body[data-theme="papercut"] .rail-task { flex: none; }
+
+/* 任务卡 */
+body[data-theme="papercut"] .task-card {
+  position: relative; overflow: hidden;
+  background: var(--pc-paper); border: 1.5px solid var(--pc-edge); border-radius: 14px;
+  box-shadow: var(--pc-shadow); padding: 16px 16px 12px;
+}
+body[data-theme="papercut"] .task-top { position: absolute; top: 0; left: 0; right: 0; height: 7px; background: linear-gradient(90deg, var(--pc-hot) 0 33%, var(--pc-accent) 33% 66%, var(--pc-ok) 66% 100%); }
+body[data-theme="papercut"] .task-card.urgent .task-top { background: linear-gradient(90deg, var(--pc-hot) 0 55%, var(--pc-hot-fill) 55% 100%); }
+body[data-theme="papercut"] .task-seal {
+  position: absolute; top: 16px; right: 14px;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--pc-accent); color: var(--pc-accent-ink);
+  border: 2px solid var(--pc-edge); box-shadow: 0 2px 0 var(--pc-edge);
+  display: grid; place-items: center; font-weight: 800; font-size: 15px;
+  transform: rotate(4deg);
+}
+body[data-theme="papercut"] .task-card.urgent .task-seal { background: var(--pc-hot-fill); color: #fff; }
+body[data-theme="papercut"] .eyebrow { display: flex; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .12em; color: var(--pc-muted); margin-bottom: 7px; padding-right: 44px; }
+body[data-theme="papercut"] .eyebrow .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--pc-accent); box-shadow: 0 0 0 3px rgba(233,169,59,.25); animation: pc-pulse 1.9s ease-in-out infinite; }
+body[data-theme="papercut"] .task-card.urgent .eyebrow .pulse { background: var(--pc-hot); box-shadow: 0 0 0 3px rgba(217,101,76,.25); }
+body[data-theme="papercut"] .task-card h2 { margin: 0 0 8px; font-size: 19px; font-weight: 800; line-height: 1.35; max-width: 240px; }
+body[data-theme="papercut"] .risk-chip {
+  display: inline-block; font-size: 10.5px; font-weight: 700; color: #A9402C;
+  background: #FFE8DD; border: 1px solid var(--pc-hot-fill); border-radius: 8px;
+  padding: 3px 9px; margin-bottom: 6px;
+}
+body[data-theme="papercut"] .task-foot { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--pc-rule); font-size: 10.5px; color: var(--pc-muted); }
+
+/* 报价票（右栏常驻摘要） */
+body[data-theme="papercut"] .rail-offers .offer-bar {
+  position: static; display: block; width: 100%; max-width: none; inset: auto;
+  transform: none; margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none;
+}
+body[data-theme="papercut"] .offer-bar.hidden { display: none; }
+body[data-theme="papercut"] .offer-ticket {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--pc-paper-2); border: 1.5px solid var(--pc-edge); border-radius: 11px;
+  padding: 9px 11px; cursor: pointer;
+  box-shadow: 0 2px 0 var(--pc-paper-deep);
+}
+body[data-theme="papercut"] .offer-ticket:hover { background: #FFF3D8; }
+body[data-theme="papercut"] .offer-ticket .ob-text { font-size: 11.5px; font-weight: 600; color: var(--pc-ink); }
+body[data-theme="papercut"] .offer-ticket .ob-text b { color: var(--pc-hot); font-family: var(--pc-font-num); font-size: 13px; }
+body[data-theme="papercut"] .offer-ticket .ot-name { font-size: 10.5px; color: var(--pc-muted); }
+body[data-theme="papercut"] .offer-ticket .ob-actions { margin-left: auto; }
+body[data-theme="papercut"] .offer-ticket .btn.tiny { padding: 3px 10px; min-height: 26px; }
+
+/* 更多行动按钮：保留可点，纸雕次按钮 */
+body[data-theme="papercut"] .rail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+body[data-theme="papercut"] .rail-actions .btn {
+  min-height: 32px; padding: 4px 8px; font-size: 11px; font-weight: 600;
+  border: 1.5px solid var(--pc-edge); border-radius: 9px;
+  background: var(--pc-paper); color: var(--pc-ink);
+  box-shadow: 0 2px 0 var(--pc-paper-deep); white-space: nowrap;
+}
+body[data-theme="papercut"] .rail-actions .btn:hover:not(:disabled) { background: #FFF3D8; }
+body[data-theme="papercut"] .rail-actions .btn:disabled { opacity: .45; cursor: not-allowed; }
+body[data-theme="papercut"] .rail-actions .badge { background: var(--pc-hot); color: #fff; }
+body[data-theme="papercut"] #btn-buy-dev { margin-top: 8px; width: 100%; min-height: 34px; }
+
+/* 成就 / 日志 */
+body[data-theme="papercut"] .rail-detail .row { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; color: var(--pc-ink-soft); }
+body[data-theme="papercut"] .rail-detail .row b { font-family: var(--pc-font-num); font-weight: 800; color: var(--pc-ink); }
+body[data-theme="papercut"] .rail-log .log { max-height: 92px; overflow-y: auto; font-size: 10.5px; line-height: 1.6; }
+body[data-theme="papercut"] .logitem { display: flex; gap: 7px; padding: 2px 0; border-bottom: 1px dashed var(--pc-rule); }
+body[data-theme="papercut"] .logitem .lt { flex: none; color: var(--pc-muted); font-family: var(--pc-font-num); }
+
+/* ---------------------------------------------------------------- 6. 底栏手牌架 */
+body[data-theme="papercut"] .shelf {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(300px, 360px);
+  align-items: center; gap: var(--pc-gap);
+  height: var(--pc-shelf-h);
+  padding: 0 var(--pc-pad);
+  background: linear-gradient(180deg, #FFF9EC, #F7E7C8);
+  border-top: 3px solid var(--pc-edge);
+  box-shadow: 0 -6px 20px rgba(10,40,42,.18);
+  z-index: 25;
+}
+body[data-theme="papercut"] .shelf-handlabel { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: none; }
+body[data-theme="papercut"] .shelf-kicker { font-size: 9.5px; font-weight: 700; letter-spacing: .12em; color: var(--pc-muted); }
+body[data-theme="papercut"] .shelf-handlabel b { font-family: var(--pc-font-num); font-size: 32px; font-weight: 800; line-height: 1; }
+body[data-theme="papercut"] .shelf-sub { font-size: 10px; color: var(--pc-muted); }
+body[data-theme="papercut"] .shelf-handlabel .risk-chip { font-size: 9px; padding: 2px 6px; margin: 2px 0 0; }
+
+/* 5 张资源卡：地形色顶条 + 图标 + 中文名 + 大数字 */
+body[data-theme="papercut"] .shelf .handrow { display: flex; align-items: stretch; gap: 9px; min-width: 0; }
+body[data-theme="papercut"] .shelf .handrow .card {
+  position: relative; flex: 1 1 0; min-width: 0; max-width: 112px;
+  height: 96px; margin: 0; padding: 10px 4px 6px;
+  display: grid; grid-template-rows: 34px auto 1fr; justify-items: center; align-items: center;
+  background: var(--pc-paper);
+  border: 2px solid var(--pc-edge); border-radius: 13px;
+  box-shadow: 0 4px 0 var(--pc-paper-deep), 0 7px 14px rgba(20,45,40,.12);
+  transform: none; animation: none; transition: transform .18s cubic-bezier(.34,1.4,.64,1);
+  overflow: hidden;
+}
+body[data-theme="papercut"] .shelf .handrow .card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 8px;
+  background: var(--rc, var(--pc-paper-2));
+  border-bottom: 1.5px solid var(--pc-edge);
+}
+body[data-theme="papercut"] .shelf .handrow .card::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.35), transparent 40%);
+}
+body[data-theme="papercut"] .shelf .handrow .card:hover { transform: translateY(-3px); }
+body[data-theme="papercut"] .shelf .handrow .card.empty { opacity: .5; filter: grayscale(.55); }
+body[data-theme="papercut"] .shelf .handrow .card.empty:hover { transform: none; }
+body[data-theme="papercut"] .shelf .handrow .card .port-tag {
+  position: absolute; top: 12px; right: 7px; z-index: 2;
+  font-family: var(--pc-font-num); font-size: 9px; font-weight: 800;
+  background: var(--pc-accent); color: var(--pc-accent-ink);
+  border: 1px solid var(--pc-edge); border-radius: 5px; padding: 1px 4px;
+}
+body[data-theme="papercut"] .shelf .handrow .card .cband {
+  width: 34px; height: 34px; flex: none; margin-top: 0;
+  border: 1.5px solid var(--pc-edge); border-radius: 9px;
+  background: var(--rcl, var(--pc-paper-2));
+  color: var(--pc-ink); font-size: 0; /* 图标是 svg */
+  display: grid; place-items: center; box-shadow: 0 2px 0 var(--rcd, var(--pc-paper-deep));
+  align-self: start;
+}
+body[data-theme="papercut"] .shelf .handrow .card .cband svg { width: 22px; height: 22px; color: var(--pc-ink); }
+body[data-theme="papercut"] .shelf .handrow .card .cname { font-size: 10.5px; font-weight: 700; color: var(--pc-ink-soft); line-height: 1.3; margin-top: 0; text-align: center; }
+body[data-theme="papercut"] .shelf .handrow .card .cnum {
+  margin: 0; font-family: var(--pc-font-num); font-size: 31px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--pc-ink);
+  white-space: nowrap; text-overflow: ellipsis; text-align: center; align-self: center;
+}
+body[data-theme="papercut"] .shelf .handrow .card.empty .cnum { color: var(--pc-muted); }
+
+/* 发展卡堆：扇形纸卡 + 数量（内容不公开） */
+body[data-theme="papercut"] .dev-stack {
+  position: relative; flex: none; width: 166px; height: 96px;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--pc-paper); border: 2px dashed var(--pc-edge); border-radius: 13px;
+  padding: 8px 12px;
+}
+body[data-theme="papercut"] .dev-fan { position: relative; width: 48px; height: 62px; flex: none; }
+body[data-theme="papercut"] .dev-fan i {
+  position: absolute; width: 40px; height: 56px; border-radius: 8px;
+  background: linear-gradient(160deg, #E9A93B, #C99745); border: 2px solid var(--pc-edge);
+  box-shadow: 0 2px 0 var(--pc-paper-deep);
+}
+body[data-theme="papercut"] .dev-fan i:nth-child(1) { transform: rotate(-12deg) translate(-6px, 2px); }
+body[data-theme="papercut"] .dev-fan i:nth-child(2) { transform: rotate(0deg); }
+body[data-theme="papercut"] .dev-fan i:nth-child(3) { transform: rotate(12deg) translate(6px, 2px); }
+body[data-theme="papercut"] .dev-fan i::after { content: '✦'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--pc-paper); font-size: 18px; }
+body[data-theme="papercut"] .dev-copy { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+body[data-theme="papercut"] .dev-copy b { font-family: var(--pc-font-num); font-size: 26px; font-weight: 800; }
+body[data-theme="papercut"] .dev-copy span { font-size: 11px; font-weight: 700; }
+body[data-theme="papercut"] .dev-copy em { font-size: 9px; font-style: normal; color: var(--pc-muted); margin-top: 3px; }
+
+/* 操作区：主按钮金色、次按钮纸白、结束回合弱化 */
+body[data-theme="papercut"] .shelf-actions { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+body[data-theme="papercut"] .btn {
+  border-radius: 11px; font-family: var(--pc-font); cursor: pointer; font-weight: 700;
+  border: 1.5px solid var(--pc-edge); transition: transform .12s ease, box-shadow .12s ease;
+}
+body[data-theme="papercut"] .btn:active:not(:disabled) { transform: translateY(1px); }
+body[data-theme="papercut"] .btn.primary,
+body[data-theme="papercut"] .roll-btn {
+  height: 45px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 14.5px; color: var(--pc-accent-ink);
+  background: linear-gradient(180deg, #F2B54F, var(--pc-accent));
+  box-shadow: 0 3px 0 #A9701E, 0 6px 14px rgba(20,45,40,.18);
+}
+body[data-theme="papercut"] .roll-btn .roll-ico { font-size: 18px; }
+body[data-theme="papercut"] .roll-btn small { font-family: var(--pc-font-num); font-size: 10px; opacity: .8; }
+body[data-theme="papercut"] .btn.primary:hover:not(:disabled),
+body[data-theme="papercut"] .roll-btn:hover:not(:disabled) { filter: brightness(1.04); }
+body[data-theme="papercut"] .action-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+body[data-theme="papercut"] .action-row .btn {
+  height: 34px; padding: 0 4px; font-size: 11.5px;
+  background: var(--pc-paper); color: var(--pc-ink);
+  box-shadow: 0 2px 0 var(--pc-paper-deep);
+}
+body[data-theme="papercut"] .action-row .btn:hover:not(:disabled) { background: #FFF3D8; }
+body[data-theme="papercut"] .action-row .end-btn { color: var(--pc-muted); border-style: dashed; }
+body[data-theme="papercut"] .btn:disabled { opacity: .5; cursor: not-allowed; filter: grayscale(.4); box-shadow: none; }
+body[data-theme="papercut"] .action-note { font-size: 10px; line-height: 1.35; color: var(--pc-hot); min-height: 14px; }
+body[data-theme="papercut"] .action-note:empty { display: none; }
+
+/* ---------------------------------------------------------------- 7. 抽屉 / 浮层 / 结束 */
+body[data-theme="papercut"] .drawer {
+  top: calc(var(--pc-top-h) + 8px); bottom: calc(var(--pc-shelf-h) + 8px); right: var(--pc-pad);
+  width: min(438px, calc(100vw - 48px));
+  background: var(--pc-paper); border: 2px solid var(--pc-edge); border-radius: 16px;
+  box-shadow: var(--pc-shadow); z-index: 70;
+}
+body[data-theme="papercut"] .drawer-head { border-bottom: 1.5px solid var(--pc-edge); background: var(--pc-paper-2); border-radius: 14px 14px 0 0; }
+body[data-theme="papercut"] .drawer-head h3 { font-size: 15px; font-weight: 800; }
+body[data-theme="papercut"] .drawer-close, body[data-theme="papercut"] .btn.wide {
+  border: 1.5px solid var(--pc-edge); border-radius: 9px; background: var(--pc-paper);
+  color: var(--pc-ink); box-shadow: 0 2px 0 var(--pc-paper-deep);
+}
+body[data-theme="papercut"] .drawer-body { padding: 14px; }
+body[data-theme="papercut"] .drawer-foot { background: var(--pc-paper-2); border-top: 1.5px solid var(--pc-edge); }
+/* 抽屉里的面板（建造 / 交易 / 报价 / 兑换）沿用纸雕按钮与卡片 */
+body[data-theme="papercut"] .bp-item, body[data-theme="papercut"] .d-chip, body[data-theme="papercut"] .tp-who button {
+  border: 1.5px solid var(--pc-edge); border-radius: 10px; background: var(--pc-paper);
+  box-shadow: 0 2px 0 var(--pc-paper-deep); color: var(--pc-ink); font-weight: 600;
+}
+body[data-theme="papercut"] .bp-item.on, body[data-theme="papercut"] .d-chip[aria-pressed="true"],
+body[data-theme="papercut"] .tp-who button.on { background: var(--pc-accent); color: var(--pc-accent-ink); }
+body[data-theme="papercut"] .d-card { background: var(--pc-paper-2); border: 1.5px solid var(--pc-edge); border-radius: 12px; }
+body[data-theme="papercut"] .d-card .ops .btn { border: 1.5px solid var(--pc-edge); box-shadow: 0 2px 0 var(--pc-paper-deep); }
+
+body[data-theme="papercut"] .overlay .sheet {
+  background: var(--pc-paper); border: 2px solid var(--pc-edge); border-radius: 18px;
+  box-shadow: var(--pc-shadow); color: var(--pc-ink);
+}
+body[data-theme="papercut"] .end-card { background: var(--pc-paper); border: 2px solid var(--pc-edge); border-radius: 18px; }
+body[data-theme="papercut"] .settings { background: var(--pc-paper); border: 2px solid var(--pc-edge); border-radius: 14px; }
+
+/* ---------------------------------------------------------------- 8. 动效（不阻塞状态更新） */
+@keyframes pc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes pc-tumble { 0% { transform: rotate(0) scale(1); } 35% { transform: rotate(140deg) scale(1.08); } 70% { transform: rotate(260deg) scale(.96); } 100% { transform: rotate(360deg) scale(1); } }
+@keyframes pc-slip-in { from { opacity: 0; transform: translateY(8px) rotate(-3deg); } to { opacity: 1; transform: translateY(0) rotate(-1.2deg); } }
+@keyframes pc-num-pop { 0% { transform: scale(1); } 50% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes pc-prod { 0%,100% { opacity: 0; } 50% { opacity: .22; } }
+body[data-theme="papercut"] .board-event { animation: pc-slip-in .42s ease both; }
+body[data-theme="papercut"] .tile.prod .prod-fill { animation: pc-prod 1.9s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-theme="papercut"] .board-event,
+  body[data-theme="papercut"] .eyebrow .pulse,
+  body[data-theme="papercut"] .tile.prod .prod-fill { animation: none !important; }
+  body[data-theme="papercut"] .shelf .handrow .card { transition: none !important; }
+}
+[data-reduce-motion="1"] .board-event,
+[data-reduce-motion="1"] .eyebrow .pulse,
+[data-reduce-motion="1"] .tile.prod .prod-fill { animation: none !important; }
+
+/* ---------------------------------------------------------------- 9. 紧凑规格（1280×720 / 1366×768） */
+@media (max-width: 1399px), (max-height: 819px) {
+  :root { --pc-top-h: 64px; --pc-shelf-h: 122px; --pc-rail-w: 292px; --pc-gap: 14px; --pc-pad: 14px; }
+  body[data-theme="papercut"] .brand-copy em { display: none; }
+  body[data-theme="papercut"] .brand-copy b { font-size: 17px; }
+  body[data-theme="papercut"] .player-strip .player.pchip { height: 46px; padding: 4px 7px; gap: 6px; }
+  body[data-theme="papercut"] .player-strip .player .ava.pavatar { width: 26px; height: 26px; font-size: 13px; }
+  body[data-theme="papercut"] .player-strip .player .pname { font-size: 12px; }
+  body[data-theme="papercut"] .player-strip .player .pscore { font-size: 19px; }
+  body[data-theme="papercut"] .player-strip .player .pbadge { display: none; }
+  body[data-theme="papercut"] .turn-chip { min-height: 40px; }
+  body[data-theme="papercut"] .iconbtn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
+  body[data-theme="papercut"] .task-card h2 { font-size: 18px; }
+  body[data-theme="papercut"] .shelf { grid-template-columns: auto minmax(0, 1fr) auto minmax(292px, 320px); }
+  body[data-theme="papercut"] .shelf .handrow .card { height: 78px; padding: 6px 4px 4px; grid-template-rows: 26px auto 1fr; }
+  body[data-theme="papercut"] .shelf .handrow .card .cnum { font-size: 24px; line-height: 1; }
+  body[data-theme="papercut"] .shelf .handrow .card .cband { width: 26px; height: 26px; margin-top: 0; }
+  body[data-theme="papercut"] .shelf .handrow .card .cband svg { width: 17px; height: 17px; }
+  body[data-theme="papercut"] .shelf .handrow .card .cname { font-size: 9.5px; line-height: 1.1; }
+  body[data-theme="papercut"] .dev-stack { width: 142px; height: 78px; }
+  body[data-theme="papercut"] .dev-fan { transform: scale(.82); transform-origin: left center; }
+  body[data-theme="papercut"] .dev-copy b { font-size: 22px; }
+  body[data-theme="papercut"] .btn.primary, body[data-theme="papercut"] .roll-btn { height: 39px; font-size: 14px; }
+  body[data-theme="papercut"] .action-row .btn { height: 31px; font-size: 10.8px; }
+  body[data-theme="papercut"] .rail-log { display: none; }  /* 紧凑下第三行日志收起，完整内容可在抽屉查证 */
+  body[data-theme="papercut"] .drawer { width: min(408px, calc(100vw - 36px)); }
+}
+
+/* 低于 1180px：只给提示，不承诺手机/平板布局、不自动旋转整页 */
+@media (max-width: 1179px) {
+  body[data-theme="papercut"]::after {
+    content: '当前窗口较小，建议在电脑上使用并把窗口放大到 1280×720 以上';
+    position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+    z-index: 200; padding: 8px 16px; border-radius: 999px;
+    background: var(--pc-edge); color: var(--pc-paper); font-size: 12px; font-weight: 600;
+    box-shadow: var(--pc-shadow-sm); pointer-events: none;
+  }
+}

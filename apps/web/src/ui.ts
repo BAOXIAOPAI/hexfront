@@ -33,14 +33,21 @@ import {
   costText,
   missingFor,
   overlayFor as buildOverlayFor,
+  roadBuildingCandidates,
   type BuildMode,
 } from './build.js';
 import { geometryForTileKeys } from './geometry.js';
-import type { ConnState } from './net.js';
+import type { ConnState, ReconcilePhase } from './net.js';
 import { candidateEdges, candidateVertices, setupInfo, setupSeats } from './placement.js';
 import { robberTiles, stealCandidates } from './robber.js';
-import { renderBoard, type BoardOverlay } from './scene.js';
-import { isLight, PLAYER_HEX, TERRAIN_COLOR, TERRAIN_NAME, TERRAIN_SHORT } from './theme.js';
+import { pointFromKey, renderBoard, roadEndpoints, type BoardOverlay, type SceneHandle } from './scene.js';
+import { isLight, PLAYER_HEX, TERRAIN_COLOR, TERRAIN_DEEP, TERRAIN_LIGHT, TERRAIN_NAME, TERRAIN_SHORT } from './theme.js';
+import {
+  BoardCamera, candidateStillValid, resolveHits,
+  type BoardCandidate, type CameraBox,
+} from './camera.js';
+import { Panels, type PanelCallbacks, type PanelName } from './panels.js';
+import { installShelfBridge, syncShelf } from './shelf.js';
 
 const HAND_ORDER: Resource[] = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
 const DEV_ORDER = ['knight', 'victory', 'monopoly', 'plenty', 'roadbuilding'] as const;
@@ -55,7 +62,7 @@ function setText(node: HTMLElement, text: string): void {
   if (node.textContent !== text) node.textContent = text;
 }
 
-export interface UiCallbacks {
+export interface UiCallbacks extends PanelCallbacks {
   onRoll(): void;
   onEndTurn(): void;
   onStart(): void;
@@ -116,6 +123,20 @@ export class Ui {
   private readonly handTotal = byId('hand-total');
   private readonly robberbar = byId('robberbar');
 
+  /** 阶段 D：新增面板层与棋盘相机，构造函数里创建（不能依赖参数属性的初始化顺序） */
+  private readonly panels: Panels;
+  private readonly camera: BoardCamera;
+  private readonly boardStage = byId('board-stage');
+  /** 面板发起的棋盘选点请求（骑士选地块 / 筑路选 1–2 条边） */
+  private pickRequest: {
+    kind: 'tile' | 'edges';
+    purpose: string;
+    keys: string[];
+    done: (keys: string[]) => void;
+  } | null = null;
+  /** 正在等确认的本地选点；收到新 STATE 会复查是否仍合法 */
+  private pendingKey: string | null = null;
+
   private geo: Geometry | null = null;
   private geoKey = '';
   private view: PlayerView | null = null;
@@ -135,6 +156,14 @@ export class Ui {
   private discardSig = '';
   /** 当前建造模式；null 表示不在放置状态 */
   private buildMode: BuildMode | null = null;
+  /**
+   * D-04：当前交互模式（本地 UI 状态），与 view.pendingRobber（规则待办）完全分开。
+   * 'auto'   = 没有用户显式切换，按规则待办决定是否显示强盗热区
+   * 'build'  = 用户主动进入建造/交易，棋盘给建造候选（强盗待办仍在，不会被清掉）
+   * 'robber' = 用户主动返回强盗任务
+   * 无论哪种模式，都不放宽服务端对 END_TURN / 发展卡的限制（paintActions 等仍按规则裁决）。
+   */
+  private interaction: 'auto' | 'build' | 'robber' = 'auto';
   /** 建造菜单是否展开（与 buildMode 互斥：选完就收起） */
   private buildMenuOpen = false;
   /** 交易面板是否展开 */
@@ -151,15 +180,32 @@ export class Ui {
   /** 入场动画只放一次：后续每次 STATE 重绘都再播一遍的话，棋盘会一直闪 */
   private animated = { board: false, hand: false };
 
+  /** 相机在 Panels 之后构造；它就绪前忽略来自横屏状态机的重算回调 */
+  private cameraReady = false;
+
   constructor(private readonly cb: UiCallbacks) {
     initTooltips();
+    installShelfBridge();   // 桌面纸雕底栏的可见按钮 → 既有逻辑按钮（规则入口不重复实现）
+    this.panels = new Panels(this.cb, () => this.relayout());
+    this.camera = new BoardCamera(
+      this.boardStage, this.board,
+      (x, y) => this.handleBoardTap(x, y),
+      // 惰性读取旋转角度：模式切换后无需重建相机，下一次手势立刻用新角度
+      () => this.panels.landscapeRotation,
+    );
+    this.cameraReady = true;
+
     this.btnRoll.addEventListener('click', () => {
       this.spinDice();
       this.cb.onRoll();
     });
-    this.btnEnd.addEventListener('click', () => this.cb.onEndTurn());
+    // 结束回合改成明确确认，并给出不能结束的具体原因（指南 6）
+    this.btnEnd.addEventListener('click', () => this.panels.confirmEndTurn());
     this.btnBuild.addEventListener('click', () => this.toggleBuild());
     this.btnTrade.addEventListener('click', () => this.toggleTrade());
+    byId('zoom-in').addEventListener('click', () => this.camera.zoomAt(1.25));
+    byId('zoom-out').addEventListener('click', () => this.camera.zoomAt(1 / 1.25));
+    byId('zoom-reset').addEventListener('click', () => this.camera.reset());
 
     this.btnSettings.addEventListener('click', () => this.settingsPanel.classList.toggle('hidden'));
     byId('settings-close').addEventListener('click', () => this.settingsPanel.classList.add('hidden'));
@@ -177,6 +223,10 @@ export class Ui {
         this.paintRobberBar(view);
         return;
       }
+      if (btn.dataset.action === 'return-robber') {
+        this.returnToRobberTask();
+        return;
+      }
       if (btn.dataset.action === 'steal' && this.pickedRobberTile) {
         const raw = btn.dataset.seat;
         const seat = raw === undefined || raw === '' ? undefined : Number(raw);
@@ -186,12 +236,28 @@ export class Ui {
       }
     });
 
-    // 热区是整块 SVG 重画的，所以监听挂在 svg 上做事件委托，重画不会丢监听
+    // 旧 DOM 委托只作兜底；正常路径由相机在捕获阶段统一接管并吃掉拖动后的 click
     this.board.addEventListener('click', (ev) => this.onBoardClick(ev));
 
-    window.addEventListener('resize', () => {
-      if (this.view) this.paintBoard();
-    });
+    const relayout = (): void => this.relayout();
+    window.addEventListener('resize', relayout);
+    window.addEventListener('orientationchange', () => setTimeout(relayout, 120));
+  }
+
+  /**
+   * ULS / 指南 5.1：旋转模式切换、方向变化、尺寸变化都重算几何，
+   * 但只调 camera.measure() + 重画，绝不 reset() 相机，也不清 pendingKey /
+   * pickedVertex / 弃牌草稿等「待确认选择」。
+   */
+  private relayout(): void {
+    if (!this.cameraReady) return;
+    this.camera.measure();
+    if (this.view) {
+      // 首次 STATE：render() 自己紧接着会 paintBoard，这里不重复重画，
+      // 否则 animated.board 被提前置位会吞掉棋盘的入场动画。
+      if (this.animated.board) this.paintBoard();
+      this.panels.setView(this.view);
+    }
   }
 
   // -------------------------------------------------------------- 连接状态
@@ -199,16 +265,40 @@ export class Ui {
   setConnection(state: ConnState): void {
     this.connDot.classList.toggle('on', state === 'open');
     this.connDot.classList.toggle('off', state === 'dead');
+    // WS OPEN 不等于已拿到可操作的完整房间状态（指南 10.1）
+    if (state !== 'open') this.panels.setConnected(false);
     if (state === 'connecting' || state === 'reconnecting') {
       setText(this.feedTag, '连接');
-      setText(this.feedText, state === 'reconnecting' ? '与服务器断开，正在重连…' : '正在连接服务器…');
+      setText(this.feedText, state === 'reconnecting' ? '与服务器断开，正在恢复…' : '正在连接服务器…');
       setText(this.turnText, '连接中…');
+      this.panels.say(state === 'reconnecting' ? '连接中断，正在恢复；会改变对局的操作已暂停' : '正在连接服务器', '连接');
     }
     if (state === 'dead') {
       setText(this.feedTag, '离线');
-      setText(this.feedText, '连接被拒绝');
+      setText(this.feedText, '无法恢复连接');
+      this.panels.say('无法恢复连接，仍可看盘与查看帮助', '离线', true);
     }
   }
+
+  /** 拿到完整视图后才算「已同步可操作」；由 main.ts 在 WELCOME/STATE 后调用 */
+  setSynced(ok: boolean): void {
+    this.panels.setConnected(ok);
+  }
+
+  /** D-06：回前台核对期间的清晰连接状态 */
+  setReconciling(phase: ReconcilePhase, detail?: string): void {
+    this.panels.setReconciling(phase, detail);
+  }
+
+  /** 拒绝原因 / 连接异常：既在操作附近弹出，也写进底栏，不靠 hover 或颜色 */
+  flashReject(text: string): void {
+    this.panels.toast(text);
+    this.say(text, '拒绝');
+  }
+
+  /** 直接开合侧抽屉（自动化验收与运行时冒烟用） */
+  openPanel(name: Exclude<PanelName, null>): void { this.panels.open(name); }
+  closePanel(): void { this.panels.close(); }
 
   setRoom(roomId: string): void {
     setText(this.roomId, roomId.toUpperCase());
@@ -222,6 +312,8 @@ export class Ui {
   // ------------------------------------------------------------------ 浮层
 
   showJoin(opts: { name: string; roomId: string; error?: string }): void {
+    // ULS：入房 / 输入昵称与房间号阶段保持原生竖屏，避开软键盘错位
+    this.panels.setInGame(false);
     this.overlay.classList.remove('hidden');
     this.sheet.innerHTML = `
       <h1>进入牌桌</h1>
@@ -229,13 +321,16 @@ export class Ui {
       <form id="join-form">
         <div class="field">
           <label for="f-name">你的名字</label>
-          <input id="f-name" maxlength="16" autocomplete="off" placeholder="例如：小满" value="${escapeAttr(opts.name)}">
+          <input id="f-name" maxlength="16" autocomplete="off" enterkeyhint="next" placeholder="例如：小满" value="${escapeAttr(opts.name)}">
         </div>
         <div class="field">
           <label for="f-room">房间号</label>
-          <input id="f-room" maxlength="24" autocomplete="off" placeholder="main" value="${escapeAttr(opts.roomId)}">
+          <input id="f-room" maxlength="24" autocomplete="off" enterkeyhint="go" placeholder="main" value="${escapeAttr(opts.roomId)}">
         </div>
         <button class="btn primary" type="submit">加入</button>
+        <!-- A-4b：区分动作键（昵称「下一步」→ 房间号「前往」），并给出键盘直接加入的引导；
+             只改属性与文案，不动布局（真机已证回车/软键盘均可提交）。 -->
+        <div class="hint">输完按键盘上的『前往』即可加入</div>
         ${opts.error ? `<div class="err">${escapeHtml(opts.error)}</div>` : ''}
       </form>
       <div class="hint">
@@ -265,6 +360,8 @@ export class Ui {
     players: LobbyPlayer[];
     seat: number;
   }): void {
+    // ULS：LOBBY 阶段（无 PlayerView）不旋转，等开局 STATE 到了再铺横屏
+    this.panels.setInGame(false);
     this.overlay.classList.remove('hidden');
     const seats: string[] = [];
     for (let i = 0; i < opts.capacity; i++) {
@@ -298,6 +395,8 @@ export class Ui {
   }
 
   showFatal(message: string): void {
+    // ULS：回到入房浮层时同样撤掉自转
+    this.panels.setInGame(false);
     this.overlay.classList.remove('hidden');
     this.sheet.innerHTML = `
       <h1>进不去这张桌子</h1>
@@ -323,6 +422,13 @@ export class Ui {
   render(view: PlayerView, events: GameEvent[] = []): void {
     this.view = view;
     this.seq += 1;
+    // ULS：WELCOME(带 view) / STATE 到达 = 已开局，竖屏时启用 CSS 自旋转底座
+    this.panels.setInGame(true);
+
+    // D-04：权威广播说了算 —— 强盗待办解除就回到 auto；有人未弃牌则暂停本地模式
+    if (!view.pendingRobber || view.pendingDiscards.length > 0) {
+      if (this.interaction !== 'auto') this.interaction = 'auto';
+    }
 
     // 换人摆位了就丢掉半截操作：否则会出现「点过村庄、轮到别人」的幽灵状态
     const info = setupInfo(view);
@@ -334,6 +440,9 @@ export class Ui {
 
     this.tableEmpty.classList.add('hidden');
     this.paintBoard();
+    // 收到权威更新后复查本地选点：仍合法则保留，失效则清除并解释（指南 5.3）
+    this.recheckPending(view);
+    this.panels.setView(view);
     this.paintPlayers(view);
     this.paintSidebox(view);
     this.paintDevCards(view);
@@ -352,6 +461,9 @@ export class Ui {
     // 有事件就让事件占住底栏（它更新鲜）；没有事件才用摆位提示填空
     if (events.length > 0) this.pushEvents(events, view);
     else this.paintFeedHint(view);
+
+    // 桌面纸雕底栏：把逻辑节点的状态/手牌同步到可见镜像（不改任何规则）
+    syncShelf();
   }
 
   private ensureGeo(view: PlayerView): Geometry {
@@ -369,27 +481,93 @@ export class Ui {
     if (this.animated.board) this.board.classList.add('no-anim');
     // 本次掷骰真正产出的地块：点数对得上且强盗不在上面（公开信息，视图里可推）
     const highlight = new Set(rollHighlight(this.view));
-    renderBoard(this.board, this.view, this.ensureGeo(this.view), this.boardOverlay(this.view), highlight);
+    const overlay = this.boardOverlay(this.view);
+    const handle: SceneHandle = renderBoard(this.board, this.view, this.ensureGeo(this.view), overlay, highlight);
+    // 相机只改 viewBox：SVG 内部重绘不会打断绑在舞台容器上的手势，也不重置镜头
+    this.camera.measure();
+    this.camera.setScene({ ...handle.box }, this.cameraCandidates(this.view, overlay));
     this.animated.board = true;
   }
 
-  /** 掷 7 结算优先；其次摆位；再到建造模式 */
+  /** 合法候选的屏幕坐标由相机实时换算，不靠放大的透明圆硬撑热区（指南 5.2） */
+  private cameraCandidates(view: PlayerView, overlay: BoardOverlay | undefined): BoardCandidate[] {
+    const geo = this.ensureGeo(view);
+    const out: BoardCandidate[] = [];
+    for (const vk of overlay?.vertices ?? []) {
+      const p = pointFromKey(vk, geo);
+      if (p) out.push({ key: vk, kind: 'vertex', x: p.x, y: p.y, label: `路口 ${vk}` });
+    }
+    for (const ek of overlay?.edges ?? []) {
+      const pts = roadEndpoints(ek, geo);
+      if (pts) out.push({ key: ek, kind: 'edge', x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2, label: '道路' });
+    }
+    for (const tk of overlay?.tiles ?? []) {
+      const t = geo.tiles[tk];
+      if (t) out.push({ key: tk, kind: 'tile', x: t.x, y: t.y, label: `地块 ${tk}` });
+    }
+    return out;
+  }
+
+  private recheckPending(view: PlayerView): void {
+    if (!this.pendingKey) return;
+    const stillValid = candidateStillValid(
+      this.cameraCandidates(view, this.boardOverlay(view)), this.pendingKey,
+    );
+    if (stillValid) return;
+    this.pendingKey = null;
+    this.panels.hideConfirm();
+    this.panels.toast('该位置已失效，预览已撤销并说明原因');
+    this.panels.say('服务端状态已更新，刚才的位置不再合法；没有替你改选别处', '提示');
+  }
+
+  /**
+   * D-04：规则待办与交互模式分开 —— 只在「用户没有主动进入建造」时才把棋盘交给强盗。
+   * 强盗待办（view.pendingRobber）始终保留，结束回合/发展卡限制由 paintActions
+   * 与 panels.confirmEndTurn / renderRailActions 独立裁决，不因切模式而放行。
+   */
+  private robberTaskActive(view: PlayerView): boolean {
+    return view.pendingRobber
+      && view.pendingDiscards.length === 0
+      && view.current === view.viewer;
+  }
+
+  private boardInteraction(view: PlayerView): 'pick' | 'setup' | 'build' | 'robber' | 'none' {
+    if (this.pickRequest) return 'pick';
+    if (setupInfo(view)?.active) return 'setup';
+    if (this.buildMode) return 'build';                       // 显式建造优先于强盗待办
+    if (this.interaction === 'build') return 'none';
+    if (this.interaction === 'robber' && this.robberTaskActive(view)) return 'robber';
+    if (this.interaction === 'auto' && this.robberTaskActive(view)) return 'robber';
+    return 'none';
+  }
+
+  /** 棋盘热区唯一入口：摆位 → 建造 → 强盗，不再让强盗待办盖掉建造选点 */
   private boardOverlay(view: PlayerView): BoardOverlay | undefined {
-    // R-42：全员弃完牌后，掷骰者必须先挪强盗。此时棋盘只给地块热区
-    if (view.pendingRobber && view.pendingDiscards.length === 0) {
-      if (view.current !== view.viewer) return undefined;
+    if (this.pickRequest) {
+      const geo = this.ensureGeo(view);
+      if (this.pickRequest.kind === 'tile') {
+        return {
+          vertices: [], edges: [], picked: null,
+          tiles: geo.tileKeys.filter((k) => k !== view.robberTile),
+          pickedTile: null,
+        };
+      }
+      // D-03：第二条候选基于「假设第一条已建成」的合法状态，和引擎逐条放置一致
       return {
-        vertices: [],
-        edges: [],
+        vertices: [], edges: roadBuildingCandidates(view, geo, this.pickRequest.keys),
         picked: null,
+      };
+    }
+    switch (this.boardInteraction(view)) {
+      case 'setup': return this.setupOverlay(view);
+      case 'build': return buildOverlayFor(view, this.ensureGeo(view), this.buildMode!);
+      case 'robber': return {
+        vertices: [], edges: [], picked: null,
         tiles: robberTiles(view, this.ensureGeo(view)),
         pickedTile: this.pickedRobberTile,
       };
+      default: return undefined;
     }
-    const setup = this.setupOverlay(view);
-    if (setup) return setup;
-    if (this.buildMode) return buildOverlayFor(view, this.ensureGeo(view), this.buildMode);
-    return undefined;
   }
 
   /** 摆位热区：没轮到我就不给任何可点元素，省得点半天全是 REJECT */
@@ -407,6 +585,145 @@ export class Ui {
     return { vertices: candidateVertices(view, geo), edges: [], picked: null };
   }
 
+  // ------------------------------------------------------- 相机点选与先预览再确认
+
+  /** 相机在捕获阶段统一接管点击：按屏幕坐标找最近合法候选；拖动不会走到这里 */
+  private handleBoardTap(clientX: number, clientY: number): void {
+    // C7：借这次已有的游戏手势顺带尝试一次系统横屏；不 preventDefault、不 return，
+    // 不改变也不消费本次点击的游戏语义（失败静默留在 CSS 自转）。
+    this.panels.noticeGameGesture();
+    if (!this.view) return;
+    const resolved = resolveHits(this.camera.nearest(clientX, clientY));
+    if (resolved.kind === 'none') return;
+    // 前两名太接近：不替用户选，给两个明确按钮
+    if (resolved.kind === 'ambiguous') {
+      this.panels.showConfirm({
+        title: '两个候选很接近',
+        detail: '请明确选一个，不会自动替你挑',
+        candidates: [
+          { label: `A · ${resolved.first.label ?? resolved.first.key}`, onPick: () => this.applyHit(resolved.first) },
+          { label: `B · ${resolved.second.label ?? resolved.second.key}`, onPick: () => this.applyHit(resolved.second) },
+        ],
+        onConfirm: () => {},
+      });
+      return;
+    }
+    this.applyHit(resolved.first);
+  }
+
+  private applyHit(c: BoardCandidate): void {
+    const view = this.view;
+    if (!view) return;
+
+    // 面板发起的选点（骑士 / 筑路）；与 boardOverlay 共用同一份候选口径
+    if (this.pickRequest) {
+      const req = this.pickRequest;
+      const geo = this.ensureGeo(view);
+      if (req.kind === 'tile' && c.kind === 'tile') {
+        if (!this.boardOverlay(view)?.tiles?.includes(c.key)) return;
+        this.pickRequest = null;
+        this.paintBoard();
+        req.done([c.key]);
+        return;
+      }
+      if (req.kind === 'edges' && c.kind === 'edge') {
+        if (!roadBuildingCandidates(view, geo, req.keys).includes(c.key)) return;
+        if (!req.keys.includes(c.key)) req.keys.push(c.key);
+        this.paintBoard();   // 重画候选：第二条基于「假设第一条已建成」
+        if (req.keys.length >= 2) {
+          this.pickRequest = null;
+          this.paintBoard();
+          req.done(req.keys.slice());
+          return;
+        }
+        this.panels.showConfirm({
+          title: '已选 1 条路',
+          detail: `${req.purpose}；可继续选第二条，也可以只提交这一条`,
+          confirmText: '只要一条，提交',
+          onConfirm: () => {
+            this.pickRequest = null;
+            this.paintBoard();
+            req.done(req.keys.slice());
+          },
+          onCancel: () => this.panels.toast('继续点第二条路'),
+        });
+        return;
+      }
+      return;
+    }
+
+    const interaction = this.boardInteraction(view);
+
+    // 掷 7 强盗结算：只有在「当前交互模式确实是移动强盗」时才接管棋盘
+    if (interaction === 'robber') {
+      if (c.kind !== 'tile') return;
+      const tiles = robberTiles(view, this.ensureGeo(view));
+      if (!tiles.includes(c.key)) return;
+      this.pickedRobberTile = c.key;
+      this.paintBoard();
+      this.paintRobberBar(view);
+      const n = stealCandidates(view, this.ensureGeo(view), c.key).length;
+      this.say(n > 0 ? `选一位相邻玩家抽 1 张牌（${n} 位可选）` : '旁边没人有牌，确认放置即可', '强盗');
+      return;
+    }
+
+    const info = setupInfo(view);
+    if (info?.active) {
+      if (c.kind === 'vertex') {
+        if (c.key === this.pickedVertex) return;
+        this.pickedVertex = c.key;
+        this.paintBoard();
+        this.say('村庄选好了，点相邻那条虚线放路', '摆位');
+        return;
+      }
+      if (c.kind === 'edge') {
+        if (!this.pickedVertex) { this.say('先点一个发亮的路口放村庄', '摆位'); return; }
+        const vertex = this.pickedVertex;
+        this.pendingKey = c.key;
+        this.paintBoard();
+        this.panels.showConfirm({
+          title: `确认摆位：村庄 + 道路（第 ${info.step + 1}/${info.total} 步）`,
+          detail: `路口 ${vertex} · 道路 ${c.key}；取消不会改变服务器`,
+          onConfirm: () => {
+            this.pendingKey = null;
+            this.pickedVertex = null;
+            this.paintBoard();
+            this.cb.onPlace(vertex, c.key);
+          },
+          onCancel: () => { this.pendingKey = null; this.panels.toast('已撤销本地选择'); },
+        });
+      }
+      return;
+    }
+
+    if (!this.buildMode) return;
+    const mode = this.buildMode;
+    if (c.kind !== (mode === 'road' ? 'edge' : 'vertex')) return;
+    const miss = missingFor(view.me.resources, mode);
+    this.pendingKey = c.key;
+    this.paintBoard();
+    this.panels.showConfirm({
+      title: `在此建造${BUILD_LABEL[mode]}？`,
+      detail: `成本 ${costText(mode)}${miss.length ? ` · 还缺 ${miss.map((r) => RESOURCE_LABEL[r]).join('、')}` : ''}`,
+      disabled: miss.length > 0,
+      onConfirm: () => {
+        this.pendingKey = null;
+        this.exitBuild();
+        this.cb.onBuild(mode, c.key);
+      },
+      onCancel: () => { this.pendingKey = null; this.panels.toast('已撤销本地选择，服务器未发生变化'); },
+    });
+  }
+
+  /** 供 panels 通过回调请求棋盘选点；会收起大抽屉，只留情境提示与确认条 */
+  requestBoardPick(kind: 'tile' | 'edges', purpose: string, done: (keys: string[]) => void): void {
+    this.pickRequest = { kind, purpose, keys: [], done };
+    this.panels.close();
+    this.paintBoard();
+    this.panels.say(purpose, '选点', true);
+  }
+
+  /** 旧 DOM 事件委托只作兜底；相机已在捕获阶段吃掉所有棋盘 click */
   private onBoardClick(ev: MouseEvent): void {
     const view = this.view;
     if (!view) return;
@@ -414,12 +731,11 @@ export class Ui {
     const target = ev.target instanceof Element ? ev.target : null;
     if (!target) return;
 
-    // 掷 7 结算：先点地块，再由结算条挑一位玩家抽牌
-    if (view.pendingRobber && view.pendingDiscards.length === 0) {
-      if (view.current !== view.viewer) return;
+    // D-04：兜底委托与相机路径使用同一个模式裁决，避免「按钮允许建造、棋盘却在挪强盗」
+    if (this.boardInteraction(view) === 'robber') {
       const tileEl = target.closest('[data-tile]');
       const key = tileEl?.getAttribute('data-tile');
-      if (!key) return;
+      if (!key || !robberTiles(view, this.ensureGeo(view)).includes(key)) return;
       this.pickedRobberTile = key;
       this.refreshHints(view);
       this.paintRobberBar(view);
@@ -474,12 +790,35 @@ export class Ui {
     this.cb.onBuild(mode, vertex);
   }
 
-  /** 退出建造模式：收面板、撤热区 */
+  /** 退出建造模式：收面板、撤热区；若强盗待办还在就自动交还棋盘 */
   private exitBuild(): void {
     this.buildMode = null;
     this.buildMenuOpen = false;
+    this.interaction = 'auto';
     this.paintBuild();
-    if (this.view) this.paintBoard();
+    if (this.view) {
+      this.paintBoard();
+      this.paintRobberBar(this.view);   // D-04：切回 auto 后把强盗任务入口刷新回来
+    }
+  }
+
+  /** 用户主动「返回强盗任务」：只切本地模式，规则待办一直在 view 里，从未被清掉 */
+  returnToRobberTask(): void {
+    const view = this.view;
+    if (!view || !this.robberTaskActive(view)) return;
+    this.buildMode = null;
+    this.buildMenuOpen = false;
+    this.paintBuild();
+    if (this.tradeOpen) {
+      this.tradeOpen = false;
+      this.paintTrade(view);
+      this.panels.close();
+    }
+    this.interaction = 'robber';
+    this.pickedRobberTile = null;
+    this.paintBoard();
+    this.paintRobberBar(view);
+    this.say('已返回强盗任务：点棋盘上的地块放置强盗', '强盗');
   }
 
   /** 点「建造」：正在放置就取消，否则开合菜单 */
@@ -493,28 +832,44 @@ export class Ui {
       return;
     }
 
+    // 用户主动切到建造：只切本地交互模式，不清除 view.pendingRobber 规则待办
+    this.interaction = 'build';
     this.buildMenuOpen = !this.buildMenuOpen;
     this.paintBuild();
+    this.paintRobberBar(view);   // D-04：同步提示「可返回强盗任务」
+    // 建造菜单放进侧抽屉，避免小横屏上盖住棋盘
+    if (this.buildMenuOpen) this.panels.open('build');
+    else this.panels.close();
   }
 
   /** 供自动化验收使用：直接进入某种建造模式（等价于点面板上的那一项） */
   openBuild(mode: BuildMode): void {
+    this.interaction = 'build';   // D-04：自动化入口同样切本地交互模式
     this.pickBuild(mode);
   }
 
   private pickBuild(mode: BuildMode): void {
+    this.interaction = 'build';
     this.buildMode = mode;
     this.buildMenuOpen = false;
     this.paintBuild();
-    if (this.view) this.paintBoard();
+    // 桌面纸雕：选完建造类别后收起大抽屉，让右栏任务卡与棋盘高亮保持可见
+    // （指南 4.1：执行建造时右侧说明步骤，棋盘继续可操作，避免大面板挡住目标）。
+    this.panels.close();
+    if (this.view) {
+      this.paintBoard();
+      this.paintRobberBar(this.view);   // D-04：棋盘切热区时同步强盗提示
+    }
     this.say(`点一个发亮的位置放${BUILD_LABEL[mode]}`, '建造');
   }
 
-  /** 建造菜单：三种建造、成本、以及缺什么（缺的资源标红并禁用） */
+  /** 建造菜单：三种建造、成本、以及缺什么（缺的资源标红并禁用）。
+   *  D-04：pendingRobber 不再隐藏菜单（指南 8.2：弃完后建造/兑换/交易已恢复）。
+   *  真正的禁止项只有「有人尚未弃牌」——由 paintActions 与服务端裁决。 */
   private paintBuild(): void {
     const view = this.view;
 
-    if (!view || view.phase !== 'play' || view.pendingRobber || !this.buildMenuOpen) {
+    if (!view || view.phase !== 'play' || view.pendingDiscards.length > 0 || !this.buildMenuOpen) {
       this.buildPanel.classList.add('hidden');
       if (this.buildPanel.innerHTML) this.buildPanel.innerHTML = '';
       return;
@@ -561,10 +916,14 @@ export class Ui {
     const relevant = this.offers.filter((o) => o.to === viewer || o.from === viewer);
     const incoming = relevant.filter((o) => o.to === viewer);
     this.offer = incoming[0] ?? relevant[0] ?? this.offers[0] ?? null;
+    // 完整列表、倒计时、冷却与收件人视角转换由 panels 负责（指南 7.4）
+    this.panels.setOffers(snapshot);
     if (this.view) {
       this.paintTrade(this.view);
       this.paintOfferBar(this.view);
     }
+    // 右栏「桌上的提议」数量镜像：OFFERS 快照到达也要同步（不只等 STATE 重绘）
+    syncShelf();
   }
 
   /** 供自动化验收使用：直接展开交易面板 */
@@ -576,6 +935,7 @@ export class Ui {
     const view = this.view;
     if (!view || view.phase !== 'play') return;
 
+    this.interaction = 'build';   // D-04：交易/兑换期间也不让强盗待办接管棋盘
     this.tradeOpen = !this.tradeOpen;
     if (this.tradeOpen) {
       // 三个面板同位置，开一个就关掉别的
@@ -585,6 +945,10 @@ export class Ui {
       this.tradeTarget = -1;
     }
     this.paintTrade(view);
+    this.paintRobberBar(view);   // D-04：交易期间也要保留「返回强盗任务」入口
+    // 交易草稿放进侧抽屉：回合外也能打开（指南 P0：非当前玩家可向当前玩家报价）
+    if (this.tradeOpen) this.panels.open('trade');
+    else this.panels.close();
   }
 
   private bump(pick: Pick, res: Resource, delta: number, max: number): Pick {
@@ -597,7 +961,8 @@ export class Ui {
 
   /** 交易面板：选对象 + 两列资源（我给 / 我要），零对价也允许 */
   private paintTrade(view: PlayerView): void {
-    if (!this.tradeOpen || view.phase !== 'play' || view.pendingRobber) {
+    // D-04：pendingRobber 不再禁用交易面板（指南 8.2）；弃牌锁仍暂停一切资源变更
+    if (!this.tradeOpen || view.phase !== 'play' || view.pendingDiscards.length > 0) {
       this.tradePanel.classList.add('hidden');
       if (this.tradePanel.innerHTML) this.tradePanel.innerHTML = '';
       return;
@@ -688,47 +1053,32 @@ export class Ui {
   }
 
   /** 桌面上的报价横幅：被报价方可接受/拒绝，发起方可撤回 */
+  /**
+   * 棋盤上的常驻入口只显示未处理数量，不堆多条横幅（指南 7.4）。
+   * 列表 / 详情 / 固定位置的接受按钮都在侧抽屉里，由 panels 渲染。
+   */
   private paintOfferBar(view: PlayerView): void {
-    const offer = this.offer;
-    if (!offer) {
+    const n = this.offers.length;
+    if (n === 0) {
       this.offerBar.classList.add('hidden');
       if (this.offerBar.innerHTML) this.offerBar.innerHTML = '';
       return;
     }
-
+    const incoming = this.offers.filter((o) => o.to === view.viewer).length;
     this.offerBar.classList.remove('hidden');
-
-    const desc = (res: Partial<ResourceCount>): string => {
-      const parts = DISCARD_ORDER.filter((r) => (res[r] ?? 0) > 0).map(
-        (r) => `${RESOURCE_LABEL[r]}${res[r]}`,
-      );
-      return parts.length > 0 ? parts.join(' ') : '无';
-    };
-
-    const mine = offer.to === view.viewer;
-    const own = offer.from === view.viewer;
-    const actions = mine
-      ? '<button id="offer-accept" class="primary">接受</button><button id="offer-reject">拒绝</button>'
-      : own
-        ? '<button id="offer-cancel">撤回</button>'
-        : '';
-
-    const more = this.offers.length > 1 ? ` · 共 ${this.offers.length} 条待处理` : '';
+    // 纸雕报价票摘要：数量来自服务端 OFFERS 快照；接受/拒绝/撤回在抽屉里按 offerId 处理。
+    // 倒计时由 panels.tick() 用 expiresAt - serverNow() 渲染，绝不本地裁决或续期。
+    const first = this.offers[0]!;
+    const fromName = view.players[first.from]?.name ?? '玩家';
     this.offerBar.innerHTML = `
-      <span class="ob-text"><b>${escapeHtml(playerName(view, offer.from))}</b> 给 <b>${desc(offer.give)}</b>，要 <b>${desc(offer.get)}</b> · 对 ${escapeHtml(playerName(view, offer.to))}${more}</span>
-      <span class="ob-actions">${actions}</span>
+      <div class="offer-ticket" role="button" tabindex="0" aria-label="查看 ${n} 条待处理提议">
+        <span class="ob-text"><b>交易 ${n}</b> · ${incoming ? `${incoming} 条等你处理` : '点击查看'}</span>
+        <span class="ot-name">${escapeHtml(fromName)} 的提议</span>
+        <span class="ob-actions"><button class="btn tiny" id="offer-open">查看报价</button></span>
+      </div>
     `;
-
-    // 每个按钮都钉死当前展示报价的 ID：报价被替换/过期后，旧按钮不会指向新报价
-    this.offerBar
-      .querySelector<HTMLButtonElement>('#offer-accept')
-      ?.addEventListener('click', () => this.cb.onOfferAccept(offer.id));
-    this.offerBar
-      .querySelector<HTMLButtonElement>('#offer-reject')
-      ?.addEventListener('click', () => this.cb.onOfferReject(offer.id));
-    this.offerBar
-      .querySelector<HTMLButtonElement>('#offer-cancel')
-      ?.addEventListener('click', () => this.cb.onOfferCancel(offer.id));
+    // 整条横幅都可点（panels 已在 #offer 上做了委托）；这里不再绑定单条 ID 按钮，
+    // 避免过期后「下一条的接受按钮」顶到手指下面。
   }
 
   /** 只重画棋盘与摆位条，不碰手牌/骰子，避免点一下闪一下 */
@@ -760,9 +1110,13 @@ export class Ui {
     }
 
     if (!this.pickedRobberTile) {
+      const deferred = this.interaction !== 'robber' && this.interaction !== 'auto';
       this.robberbar.innerHTML = `
         <div class="rb-title">掷出 7 · 移动强盗</div>
-        <div class="rb-desc">点棋盘上红框的地块放置强盗（不能留原地，可放沙漠、可放自己旁边）；这块地会一直停产，直到强盗被移走。</div>`;
+        <div class="rb-desc">${deferred
+          ? '你正在建造 / 交易 / 兑换；强盗待办仍保留，结束回合与发展卡仍禁用。点下面的按钮可返回强盗任务。'
+          : '点棋盘上红框的地块放置强盗（不能留原地，可放沙漠、可放自己旁边）；这块地会一直停产，直到强盗被移走。'}</div>
+        ${deferred ? '<div class="rb-row"><button class="rb-alt" data-action="return-robber">返回强盗任务</button></div>' : ''}`;
       return;
     }
 
@@ -919,26 +1273,39 @@ export class Ui {
   }
 
   private paintPlayers(view: PlayerView): void {
+    // 晴湾纸雕玩家 chip：名字首字头像 + 分数 + 手牌/发展卡数 + 成就 pill + 当前高亮。
+    // 只用 PlayerView 的公开字段（handSize / devCardCount / score / badges），
+    // 别人的手牌种类、隐藏胜利点、发展卡内容绝不进入视图。
     const rows = view.players.map((p) => {
       const color = PLAYER_HEX[p.color];
       const light = isLight(p.color);
       const isCurrent = view.phase !== 'ended' && view.current === p.index;
+      const warn = p.handSize >= 8;
       let bars = '';
       for (let i = 0; i < 10; i++) bars += `<i class="${i < p.score ? 'on' : ''}"></i>`;
 
-      const flags: string[] = [];
-      if (isCurrent) flags.push('<span class="flag">当前</span>');
-      if (view.longestRoad?.player === p.index) flags.push('<span class="flag dim">最长路</span>');
-      if (view.largestArmy?.player === p.index) flags.push('<span class="flag dim">最大军</span>');
+      const badges: string[] = [];
+      if (view.longestRoad?.player === p.index) {
+        badges.push(`<span class="pbadge" title="最长路 ${view.longestRoad.length} 条">↝ 最长路 ${view.longestRoad.length}</span>`);
+      }
+      if (view.largestArmy?.player === p.index) {
+        badges.push(`<span class="pbadge" title="最大军 ${view.largestArmy.count} 骑士">⚔ 最大军 ${view.largestArmy.count}</span>`);
+      }
 
       return `
-        <div class="player${isCurrent ? ' active' : ''}${p.index === view.viewer ? ' me' : ''}">
-          <div class="ava${light ? ' light' : ''}" style="--c:${color}">${escapeHtml(p.name.slice(0, 1))}</div>
+        <div class="player pchip${isCurrent ? ' active current' : ''}${p.index === view.viewer ? ' me' : ''}${warn ? ' warn' : ''}" style="--pc:${color}">
+          <div class="ava pavatar${light ? ' light' : ''}" style="--c:${color}">${escapeHtml(p.name.slice(0, 1))}</div>
           <div class="pinfo">
-            <div class="pname">${escapeHtml(p.name)}${flags.join('')}</div>
-            <div class="pmeta">手牌 ${p.handSize} 张 · 发展卡 ${p.devCardCount}${p.playedKnights ? ` · 骑士 ${p.playedKnights}` : ''}</div>
+            <div class="pname">${escapeHtml(p.name)}${p.index === view.viewer ? '<span class="me-tag">你</span>' : ''}</div>
+            <div class="pmeta">
+              <span class="metric" title="手牌张数">🂠 ${p.handSize}</span>
+              <span class="metric" title="发展卡张数">▤ ${p.devCardCount}</span>
+              ${p.playedKnights ? `<span class="metric" title="已打出骑士">⚔ ${p.playedKnights}</span>` : ''}
+              ${badges.join('')}
+            </div>
             <div class="ptrack" style="--c:${color}">${bars}</div>
           </div>
+          <span class="phand" data-risk="${warn ? '1' : '0'}" aria-label="手牌 ${p.handSize} 张">${p.handSize}</span>
           <div class="pscore">${p.score}<small>分</small></div>
         </div>`;
     });
@@ -975,6 +1342,8 @@ export class Ui {
       const n = counts.get(card) ?? 0;
       return `<div class="devcard" data-tip="dev-${card}"><b>${label[card]}</b><span class="${n === 0 ? 'zero' : ''}">${n}</span></div>`;
     }).join('');
+    // 底栏发展卡堆只显示总张数，不公开牌型（隐藏信息）
+    this.devcards.dataset.count = String(view.me.devCards.length);
   }
 
   private paintRound(view: PlayerView): void {
@@ -987,20 +1356,36 @@ export class Ui {
   }
 
   private paintHand(view: PlayerView): void {
+    // 晴湾纸雕资源卡：地形色顶条 + 资源图标 + 中文名 + 大号数量 + 港口标签。
+    // 数量唯一来源是 view.me.resources（服务端权威）；零资源灰化但不隐藏，牌位稳定。
     const cnt = HAND_ORDER.length;
     setText(this.handTotal, `${view.me.handSize} 张`);
     if (this.animated.hand) this.hand.classList.add('no-anim');
+    // 港口比例：只有「自己的建筑恰好占在港口边的端点」时才算拥有该港（公开信息）。
+    // 单纯遍历 view.ports 会把全桌所有港口都标到自己手牌上，属于呈现错误。
+    const geo = this.ensureGeo(view);
+    const portOf: Partial<Record<Resource, string>> = {};
+    for (const slot of view.ports) {
+      if (slot.port.kind !== 'specific') continue;
+      const edge = geo.edges[slot.edge];
+      if (!edge) continue;
+      const mine = [edge.a, edge.b].some((vk) => view.buildings[vk]?.owner === view.viewer);
+      if (mine) portOf[slot.port.resource] = '2:1';
+    }
     this.hand.innerHTML = HAND_ORDER.map((res, i) => {
       const n = view.me.resources[res] ?? 0;
       const off = i - (cnt - 1) / 2;
       const rot = (off * 5.5).toFixed(1);
       const lift = Math.abs(off) * 5;
       const light = res === 'wheat';
+      const port = portOf[res];
       return `
-        <div class="card${n === 0 ? ' empty' : ''}" style="--rot:${rot}deg;--lift:${lift}px;animation-delay:${i * 60}ms">
-          <div class="cband${light ? ' light' : ''}" style="background:${TERRAIN_COLOR[res]}">${TERRAIN_SHORT[res]}</div>
-          <div class="cnum">${n}</div>
-          <div class="cname">${TERRAIN_NAME[res]}</div>
+        <div class="card res-card${n === 0 ? ' empty' : ''}" data-res="${res}"
+             style="--rc:${TERRAIN_COLOR[res]};--rcl:${TERRAIN_LIGHT[res]};--rcd:${TERRAIN_DEEP[res]};--rot:${rot}deg;--lift:${lift}px;animation-delay:${i * 60}ms">
+          <span class="port-tag${port ? '' : ' hidden'}">${port ?? ''}</span>
+          <div class="cband res-ico${light ? ' light' : ''}" style="background:${TERRAIN_COLOR[res]}">${resourceGlyph(res)}</div>
+          <div class="res-name cname">${TERRAIN_NAME[res]}</div>
+          <div class="cnum res-count">${n}</div>
         </div>`;
     }).join('');
     this.animated.hand = true;
@@ -1042,10 +1427,14 @@ export class Ui {
 
     this.btnRoll.disabled = !(myTurn && !view.hasRolled && !locked && !robberPending);
     this.btnEnd.disabled = !(myTurn && view.hasRolled && !locked && !robberPending);
+    this.btnEnd.title = robberPending ? '掷出 7 后必须先把强盗挪走'
+      : locked ? '还有人尚未弃牌'
+        : !view.hasRolled ? '先掷骰子才能结束回合' : '';
     // 变体 V-1：掷骰只是「本回合必须发生」，不限定发生在哪个阶段。
-    // 建造与交易都不要求先掷骰，只认「自己的回合 + 没有结算锁」。
-    this.btnBuild.disabled = !(myTurn && !locked && !robberPending);
-    this.btnTrade.disabled = !(myTurn && !locked && !robberPending);
+    // 指南 8.2：弃完、强盗待移动时建造与交易已恢复，只有发展卡/结束回合仍禁。
+    this.btnBuild.disabled = !(myTurn && !locked);
+    // 指南 P0：回合外也能向当前玩家报价；只受弃牌锁约束，不受是否轮到自己约束。
+    this.btnTrade.disabled = !(!locked);
   }
 
   private paintDice(view: PlayerView): void {
@@ -1091,6 +1480,22 @@ export class Ui {
       setText(this.feedTag, '动态');
       setText(this.feedText, top.text);
     }
+  }
+}
+
+/**
+ * 资源图形（inline SVG）：原型 Board.resourceIcon 的纸雕简化版。
+ * 图形 + 中文名 + 颜色三重表达，不依赖 emoji 或单一颜色。
+ */
+function resourceGlyph(res: Resource): string {
+  const s = 'viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"';
+  switch (res) {
+    case 'wood': return `<svg ${s}><path d="M5 8.5 12 5l7 3.5-7 3.5Z"/><path d="M5 8.5v7L12 19l7-3.5v-7"/><path d="M12 12v7"/><circle cx="12" cy="8.5" r="1.4"/></svg>`;
+    case 'brick': return `<svg ${s}><rect x="3.5" y="6" width="8" height="5" rx="1"/><rect x="12.5" y="6" width="8" height="5" rx="1"/><rect x="8" y="13" width="8" height="5" rx="1"/><path d="M6.5 6v5M16.5 6v5M12 13v5"/></svg>`;
+    case 'sheep': return `<svg ${s}><path d="M6 10a3 3 0 0 1 3-3 3 3 0 0 1 3 1 3 3 0 0 1 3-1 3 3 0 0 1 3 3 3 3 0 0 1-1 5H8a3 3 0 0 1-2-5Z"/><circle cx="9" cy="12" r=".8" fill="currentColor" stroke="none"/><path d="M9 15v3M15 15v3"/></svg>`;
+    case 'wheat': return `<svg ${s}><path d="M12 21V6"/><path d="M12 9 8 6M12 9l4-3M12 14 8 11M12 14l4-3"/><path d="M12 6c-2-1-2-3 0-4 2 1 2 3 0 4Z"/></svg>`;
+    case 'ore': return `<svg ${s}><path d="M4 15 8 6l5 3 3-4 4 10Z"/><path d="M8 6l1 9M13 9l-1 6M16 5l-1 10"/></svg>`;
+    default: return '';
   }
 }
 

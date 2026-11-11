@@ -3,128 +3,262 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>六角拓荒</title>
+  <title>六角拓荒 · 晴湾纸雕</title>
+  <!--
+    桌面优先（docs/19 PC-1 / 21-desktop-integration.md）：
+    styles.css  = 既有画风（阶段 D 之前的卡牌/按钮）
+    layout.css  = 阶段 D 的结构、触控目标、横屏自转与断点（测试契约，保持不动）
+    papercut.css= 最后加载的「晴湾纸雕」桌面主题层，覆盖为 1280×720+ 的纸雕主画面。
+    顺序不可调换：dom-contract 对账依赖 styles.css 在 layout.css 之前。
+  -->
   <link rel="stylesheet" href="/src/styles.css">
+  <link rel="stylesheet" href="/src/layout.css">
+  <link rel="stylesheet" href="/src/papercut.css">
 </head>
-<body>
-  <div class="app">
-    <header class="topbar">
+<body data-theme="papercut">
+  <!--
+    三行纸雕桌面：顶栏（品牌 / 玩家条 / 回合）→ 主区（棋盘 + 右栏）→ 底栏（手牌架 + 操作）。
+    所有旧 DOM id 与 data-board-input / data-board-ui / data-info-only 契约全部保留；
+    #landscape-hud 仍在 #shell 之外（不参与自转）。
+    说明：阶段 D 的「右栏手牌 / pinned 操作」节点全部保留（dom-contract 与行为测试依赖），
+    在桌面 papercut 布局里由 CSS 收起，真正的可见手牌与主动作在 #shelf 里，
+    由 papercut.css 的「镜像节点」呈现；ui.ts 会同步二者文本/状态，不重复绑定事件。
+  -->
+  <div class="shell" id="shell" role="region" aria-label="横屏对局画布" data-reduce-motion="0" data-connected="0" data-landscape-mode="off" data-landscape-dir="cw">
+    <!-- ---------------------------------------------------------------- 顶栏 -->
+    <header class="hdr topbar">
       <div class="brand">
-        <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
-          <path d="M13 2 L23 7.5 L23 18.5 L13 24 L3 18.5 L3 7.5 Z"
-                fill="#4A8B5C" stroke="#4A3325" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M13 8 L18 11 L18 16 L13 19 L8 16 L8 11 Z" fill="#FFF9F0" opacity=".85"/>
-        </svg>
-        <span class="name">六角拓荒</span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" width="34" height="34"><path d="M20 2 35 11v18L20 38 5 29V11Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M20 9 29 14v11l-9 5-9-5V14Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="20" cy="20" r="2.6" fill="currentColor"/><path d="M20 2v7M35 11l-6 3M35 29l-6-3M20 38v-7M5 29l6-3M5 11l6 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </span>
+        <span class="brand-copy">
+          <b>六角拓荒</b>
+          <em>HEX FRONTIER</em>
+        </span>
       </div>
 
-      <div class="room">
+      <div class="conn-chip" id="conn-chip">
         <span class="dot" id="conn-dot"></span>
         <span id="room-label">房间 <b id="room-id">—</b></span>
       </div>
 
-      <div class="topmid">
-        <div class="turnchip">
-          <div class="ava" id="turn-ava" style="--c:#B9A48C">·</div>
-          <span id="turn-text">连接中…</span>
-        </div>
-        <div class="draftflag" id="phase-flag">等待开局</div>
+      <div class="player-strip" id="players"></div>
+
+      <div class="turn-chip" id="turn-chip">
+        <span class="turn-ava" id="turn-ava">·</span>
+        <span class="turn-copy">
+          <b id="turn-text">连接中…</b>
+          <em id="phase-flag">等待开局</em>
+        </span>
       </div>
 
-      <div class="mobilebar" id="mobilebar"></div>
-
-      <button class="iconbtn" id="btn-settings" title="房间设置" aria-label="房间设置">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B5445" stroke-width="2" stroke-linecap="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
-        </svg>
-      </button>
+      <div class="hdr-actions">
+        <button class="iconbtn orientation-btn" id="btn-orientation" aria-label="尝试系统横屏（可选）" title="尝试系统横屏（可选）">⟳</button>
+        <button class="iconbtn" id="btn-help" aria-label="帮助与规则说明" title="帮助">?</button>
+        <button class="iconbtn" id="btn-motion" aria-label="减少动态效果" aria-pressed="false" title="减少动态效果">≈</button>
+        <button class="iconbtn" id="btn-settings" title="房间设置" aria-label="房间设置">⚙</button>
+      </div>
     </header>
 
-    <main class="main">
-      <aside class="panel left">
-        <div class="panel-head">玩家</div>
-        <div class="players" id="players"></div>
+    <!-- ---------------------------------------------------------------- 主区 -->
+    <main class="stage-main">
+      <section class="board-stage" id="board-stage" aria-label="棋盘手势区">
+        <svg id="board" data-board-input xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
 
-        <div class="sidebox" id="sidebox">
-          <div class="row"><span>最长路</span><b>—</b></div>
-          <div class="row"><span>最大军</span><b>—</b></div>
-          <div class="row"><span>牌堆剩余</span><b>—</b></div>
+        <div class="cam-tools" id="cam-tools" data-board-ui>
+          <button class="cam-btn" id="zoom-in" aria-label="放大棋盘">+</button>
+          <button class="cam-btn" id="zoom-out" aria-label="缩小棋盘">−</button>
+          <button class="cam-btn" id="zoom-reset" aria-label="回到全局视图" title="回到全局">⌂</button>
         </div>
 
-        <div class="panel-head" style="margin-top:12px;">最近动作</div>
-        <div class="log" id="log"></div>
-      </aside>
+        <!-- 棋盘事件 slip：骰子与最近动态（点数来自服务端 view.dice） -->
+        <div class="board-event" id="board-event" data-board-ui data-info-only>
+          <div class="event-dice">
+            <div class="die" id="die1">?</div><div class="die" id="die2">?</div>
+          </div>
+          <div class="event-copy">
+            <b id="feed-tag">状态</b>
+            <span id="feed-text">正在连接…</span>
+          </div>
+        </div>
 
-      <section class="table">
-        <svg id="board" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
-        <div class="setupbar hidden" id="setupbar"></div>
-        <div class="robberbar hidden" id="robberbar"></div>
-        <div class="build-panel hidden" id="build"></div>
-        <div class="trade-panel hidden" id="trade"></div>
-        <div class="offer-bar hidden" id="offer"></div>
-        <div class="discard-panel hidden" id="discard"></div>
-        <div class="table-empty" id="table-empty">等待开局</div>
+        <div class="situation hidden" id="situation" data-board-ui data-info-only></div>
+        <div class="confirm-strip hidden" id="confirm-strip" data-board-ui role="group" aria-label="操作确认"></div>
+        <div class="toast" id="toast" data-board-ui data-info-only role="status" aria-live="polite"></div>
+
+        <div class="setupbar hidden" id="setupbar" data-board-ui data-info-only></div>
+        <div class="robberbar hidden" id="robberbar" data-board-ui></div>
+        <div class="discard-panel hidden" id="discard" data-board-ui></div>
+        <div class="table-empty" id="table-empty" data-board-ui data-info-only>等待开局</div>
       </section>
 
-      <aside class="panel right">
-        <div class="panel-head">手牌 <span class="hand-total" id="hand-total"></span></div>
-        <div class="hand-side"><div class="handrow" id="hand"></div></div>
+      <aside class="rail" aria-label="行动区">
+        <div class="rail-scroll" id="rail-scroll">
+          <!-- 桌面主任务卡：由 panels.say() 的文本升级渲染，数据源不变 -->
+          <div class="rail-task" id="rail-task" aria-live="polite"></div>
 
-        <div class="panel-head">发展卡</div>
-        <div class="devcards" id="devcards"></div>
+          <div class="rail-group rail-offers">
+            <div class="rail-title">桌上的提议 <span class="rail-count" id="rail-offer-count">0</span></div>
+            <!-- #offer 的唯一实例在这里（右栏常驻报价入口） -->
+            <div class="offer-bar hidden" id="offer" data-board-ui></div>
+          </div>
 
-        <div class="panel-head" style="margin-top:14px;">本局</div>
-        <div class="sidebox" id="roundbox" style="margin:0 12px;">
-          <div class="row"><span>回合</span><b>—</b></div>
-          <div class="row"><span>掷骰</span><b>—</b></div>
-          <div class="row"><span>手牌</span><b>—</b></div>
+          <div class="rail-group">
+            <div class="rail-title">更多行动</div>
+            <div class="rail-actions" id="rail-actions"></div>
+            <button class="btn wide" id="btn-buy-dev" data-tip="dev">购买发展卡</button>
+          </div>
+
+          <div class="rail-group rail-detail" id="sidebox">
+            <div class="row"><span>最长路</span><b>—</b></div>
+            <div class="row"><span>最大军</span><b>—</b></div>
+            <div class="row"><span>牌堆剩余</span><b>—</b></div>
+          </div>
+
+          <div class="rail-group rail-detail rail-log">
+            <div class="rail-title">岛上动静</div>
+            <div class="log" id="log"></div>
+          </div>
+
+          <div class="rail-group rail-detail" id="roundbox">
+            <div class="row"><span>回合</span><b>—</b></div>
+            <div class="row"><span>掷骰</span><b>—</b></div>
+            <div class="row"><span>手牌</span><b>—</b></div>
+          </div>
+
+          <!-- 阶段 D 右栏节点：DOM 契约保留，桌面布局中由 CSS 收起 -->
+          <div class="rail-group rail-legacy">
+            <div class="rail-title">我的资源 · <span id="hand-total">0</span> 张</div>
+            <div class="handrow" id="hand"></div>
+          </div>
+          <div class="rail-group rail-legacy">
+            <div class="rail-title">发展卡</div>
+            <div class="devcards" id="devcards"></div>
+          </div>
         </div>
 
-        <div class="panel-head" style="margin-top:14px;">提示</div>
-        <div class="sidebox" style="margin:0 12px;">
-          <div style="font-size:11.5px;color:#8A7259;line-height:1.75;">
-            手牌 8 张起，掷出 7 要弃掉一半（<b style="color:#C8503F;">向上取整</b>），弃哪几张由你自己选。
+        <!-- 阶段 D pinned 操作节点：DOM 契约保留，桌面布局中由 CSS 收起 -->
+        <div class="rail-pinned">
+          <div class="pinned-status">
+            <div class="dicepair"><div class="dice" id="die1-mirror">?</div><div class="dice" id="die2-mirror">?</div></div>
+            <div class="feed"><span class="tag" id="feed-tag-mirror">状态</span><span class="txt" id="feed-text-mirror">正在连接…</span></div>
+          </div>
+          <div class="blocked-reason hidden" id="blocked-reason"></div>
+          <div class="pinned-row">
+            <button class="btn primary" id="btn-roll" disabled data-tip="roll">掷骰子</button>
+            <button class="btn ghost mini" id="btn-build" disabled data-tip="build">建造</button>
+            <button class="btn ghost mini" id="btn-trade" disabled data-tip="trade">交易</button>
+            <button class="btn ghost mini" id="btn-end" disabled data-tip="end">结束回合</button>
           </div>
         </div>
       </aside>
     </main>
 
-    <footer class="bottombar">
-      <div class="opbar">
-        <div class="dicepair">
-          <div class="dice" id="die1">?</div>
-          <div class="dice" id="die2">?</div>
-        </div>
-        <button class="btn primary" id="btn-roll" disabled data-tip="roll">掷骰子</button>
-        <button class="btn ghost mini" id="btn-build" disabled data-tip="build">建造</button>
-        <button class="btn ghost mini" id="btn-trade" disabled data-tip="trade">交易</button>
-        <button class="btn ghost mini" id="btn-end" disabled data-tip="end">结束回合</button>
-        <div class="feed">
-          <span class="tag" id="feed-tag">状态</span>
-          <span class="txt" id="feed-text">正在连接…</span>
+    <!-- ---------------------------------------------------------------- 底栏手牌架（桌面可见） -->
+    <footer class="shelf" id="shelf">
+      <div class="shelf-handlabel">
+        <span class="shelf-kicker">我的手牌</span>
+        <b id="shelf-hand-total">0</b>
+        <span class="shelf-sub">张</span>
+        <span class="risk-chip hidden" id="risk-chip">掷 7 要弃一半</span>
+      </div>
+
+      <div class="handrow" id="shelf-hand"></div>
+
+      <div class="dev-stack" id="dev-stack">
+        <div class="dev-fan" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="dev-copy">
+          <b id="shelf-dev-count">0</b>
+          <span>发展卡</span>
+          <em>内容仅自己可见</em>
         </div>
       </div>
+
+      <div class="shelf-actions">
+        <button class="btn primary roll-btn" id="shelf-btn-roll" disabled data-tip="roll">
+          <span class="roll-ico" aria-hidden="true">⚄</span> 掷骰子 <small>2d6</small>
+        </button>
+        <div class="action-row">
+          <button class="btn ghost" id="shelf-btn-build" disabled data-tip="build">建造</button>
+          <button class="btn ghost" id="shelf-btn-trade" disabled data-tip="trade">交易</button>
+          <button class="btn ghost" id="shelf-btn-bank" disabled>兑换</button>
+          <button class="btn quiet end-btn" id="shelf-btn-end" disabled data-tip="end">结束回合</button>
+        </div>
+        <div class="action-note" id="shelf-action-note"></div>
+      </div>
     </footer>
+
+    <!-- 侧抽屉：建造 / 交易 / 发展卡行动 / 银行 / 借港 / 帮助 / 报价列表 -->
+    <div class="drawer" id="drawer" aria-label="详情抽屉" aria-hidden="true">
+      <div class="drawer-head">
+        <h3 id="drawer-title">详情</h3>
+        <button class="drawer-close" id="drawer-close" aria-label="关闭抽屉">关闭</button>
+      </div>
+      <div class="drawer-body" id="drawer-body">
+        <div class="build-panel hidden" id="build"></div>
+        <div class="trade-panel hidden" id="trade"></div>
+        <div id="extra-panel"></div>
+      </div>
+      <div class="drawer-foot hidden" id="drawer-foot"></div>
+    </div>
+
+    <div class="mobilebar hidden" id="mobilebar"></div>
+
+    <div class="settings hidden" id="settings">
+      <div class="set-title">房间设置 <button class="set-close" id="settings-close" aria-label="关闭">×</button></div>
+      <label class="set-row" for="set-setup-grant">
+        <span class="set-text">
+          <b>开局自动获得周围资源</b>
+          <small>第二轮摆位时，村庄相邻地块各发 1 张。关掉则空手开局。</small>
+        </span>
+        <input type="checkbox" id="set-setup-grant" checked>
+      </label>
+      <div class="set-note" id="settings-note">开局前可修改；开局后本局锁定。</div>
+    </div>
+
+    <div class="tipbox hidden" id="tipbox" role="tooltip"></div>
+    <div class="overlay hidden" id="overlay"><div class="sheet" id="sheet"></div></div>
+
+    <!-- 旧竖屏卡片：id 全部保留（dom-contract 对账），桌面不显示 -->
+    <div class="portrait-gate hidden" id="portrait-gate">
+      <div class="portrait-card">
+        <h3>横屏对局</h3>
+        <p>页面已替你把画面铺成横屏，不用改手机设置，也不会退出房间。</p>
+        <div class="portrait-status" id="portrait-status"></div>
+        <button class="btn primary" id="portrait-landscape">尝试系统横屏（可选）</button>
+        <button class="btn" id="portrait-dismiss">仍在竖屏查看</button>
+        <button class="btn" id="portrait-help">查看操作帮助</button>
+        <div class="portrait-note">切换横屏不会退出房间，也不会丢失待确认的选择。点「仍在竖屏查看」后可在帮助里重新铺成横屏。</div>
+      </div>
+    </div>
+
+    <div class="end-screen hidden" id="end-screen">
+      <div class="end-card">
+        <h2 id="end-title">对局结束</h2>
+        <p id="end-winner"></p>
+        <div id="end-scores"></div>
+        <button class="btn primary" id="end-back">回到房间</button>
+      </div>
+    </div>
   </div>
 
-  <!-- 房间设置：房主在开局前可改，开局后本局锁定 -->
-  <div class="settings hidden" id="settings">
-    <div class="set-title">房间设置 <button class="set-close" id="settings-close" aria-label="关闭">×</button></div>
-    <label class="set-row" for="set-setup-grant">
-      <span class="set-text">
-        <b>开局自动获得周围资源</b>
-        <small>第二轮摆位时，村庄相邻地块各发 1 张。关掉则空手开局。</small>
-      </span>
-      <input type="checkbox" id="set-setup-grant" checked>
-    </label>
-    <div class="set-note" id="settings-note">开局前可修改；开局后本局锁定。</div>
-  </div>
-
-  <div class="tipbox hidden" id="tipbox" role="tooltip"></div>
-
-  <div class="overlay" id="overlay">
-    <div class="sheet" id="sheet"></div>
+  <!-- ULS 正立层：故意放在 #shell 之外，不参与 CSS 自转；桌面尺寸下隐藏 -->
+  <div class="landscape-hud hidden" id="landscape-hud" role="status" aria-live="polite" aria-label="横屏显示状态">
+    <svg class="lh-icon" viewBox="0 0 44 44" aria-hidden="true" focusable="false">
+      <rect x="24" y="9" width="13" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+      <line x1="28" y1="12.5" x2="33" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="30.5" cy="31" r="1.4" fill="currentColor"/>
+      <path d="M18 14 A13 13 0 0 0 8 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M8 24 l5 -3.5 M8 24 l5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="lh-copy">
+      <b class="lh-main" id="landscape-hint-main">把手机向左横过来，棋盘就正了</b>
+      <span class="lh-sub" id="portrait-hint">页面已替你转好，不用改手机设置，也不会退出房间。</span>
+      <span class="lh-status" id="landscape-hint-status">横屏棋盘已铺好 · 连接中…</span>
+    </div>
+    <button class="lh-btn" id="landscape-hint-close" aria-label="收起转向提示，本次不再显示">知道了</button>
+    <button class="lh-btn" id="landscape-exit">仍按竖屏查看</button>
+    <button class="lh-btn hidden" id="landscape-resume">重新铺成横屏</button>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
