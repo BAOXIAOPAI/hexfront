@@ -1,0 +1,355 @@
+{
+  "schema": "hexfront.universal-landscape.device-evidence/1",
+  "generatedAt": "2026-11-08T12:22:00.000Z",
+  "scope": "真机（Android）补证：A-3 真实命中 / A-4 入房软键盘 / A-6 安全区（Android 部分）。CDP 主机复验报告见 phase-d-universal-landscape-report.json。本文件是 quality-lead 现场实测记录，不替代 iOS Safari。",
+  "device": {
+    "adbSerial": "3EY0224402017936",
+    "model": "ADY_AL00",
+    "os": "Android 12 (SDK 31)",
+    "physicalSize": "1256x2760",
+    "density": 540,
+    "browser": "Microsoft Edge Android (com.microsoft.emmx)",
+    "browserVersion": "EdgA/156.0.4314.56",
+    "browserEngine": "Chromium 156",
+    "cdpEndpoint": "adb forward tcp:9224 localabstract:chrome_devtools_remote",
+    "cssViewport": {
+      "innerWidth": 372,
+      "innerHeight": 668,
+      "dpr": 3.375,
+      "screen": "373x818"
+    },
+    "alsoDetected": [
+      "localabstract:un01chrome_devtools_remote → com.android.chrome Chrome/157.0.8103.46（本次未用，可作下一轮 lock 成功路径补证）",
+      "com.quark.browser / com.huawei.browser 打开 http://127.0.0.1:8794 均显示错误页（未到达服务端，服务日志无请求）→ 厂商浏览器本轮未能取证",
+      "com.tencent.mm（微信）在列，未测试"
+    ],
+    "method": "ADB reverse tcp:8794 + 单端口服务（PORT=8794 HOST=127.0.0.1 node apps/server/dist/server.cjs）；1 个 Edge 页面 + 3 个 Node WebSocket 补位（只发 JOIN v:2）凑满 4 人自动开局；页面状态用 Edge CDP 读取，触摸用 adb input tap / Input.dispatchTouchEvent，截图 adb screencap。"
+  },
+  "room": {
+    "id": "qa-ul-dv2",
+    "players": "ULP1(浏览器) + UL-补位A/B/C(协议)",
+    "phase": "setup",
+    "seat": 0
+  },
+  "A3_real_pointer_hit": {
+    "status": "PASS (Android/Edge scope, 部分 A-3 判据)",
+    "state": {
+      "mode": "css",
+      "dir": "cw",
+      "ulRotation": "90deg",
+      "shellRect": {
+        "w": 372.1,
+        "h": 668.1
+      },
+      "boardRect": {
+        "w": 328.1,
+        "h": 504.1
+      },
+      "railRect": {
+        "x": 0,
+        "y": 504.1,
+        "w": 328.1,
+        "h": 164
+      },
+      "elementFromPoint": {
+        "zoom-in": "zoom-in",
+        "zoom-out": "zoom-out",
+        "zoom-reset": "zoom-reset"
+      }
+    },
+    "vertexTap": {
+      "method": "adb shell input tap 892 879（= 视觉中心 CSS 264.3,260.5 × dpr 3.375）",
+      "targetVertexKey": "-4850,-19600",
+      "observed": "confirm-strip 可见，出现候选消歧：A · 路口 -14549,-19600 / B · 路口 -9699,-22400 / 取消",
+      "meaning": "旋转后视觉坐标命中棋盘，且密集候选未自动替玩家挑选"
+    },
+    "pointADoesNotLandB": {
+      "action": "真实触摸消歧按钮 [data-confirm-cand=0]（A · 路口 -14549,-19600，rect 41.7×182.6）",
+      "observed": {
+        "picked": [
+          "-14549,-19600"
+        ],
+        "confirmStripHidden": true
+      },
+      "meaning": "点 A 精确落到 A，未串到 B"
+    },
+    "dragNoAccidentalBuild": {
+      "action": "adb shell input swipe 540 1013 → 743 1013 350ms（视觉水平 40 CSS px，>8px 阈值）",
+      "observed": {
+        "viewBoxBefore": "-502.19 -307.22 877.96 571.46",
+        "viewBoxAfter": "-502.19 -211.75 877.96 571.46",
+        "pickedAfter": [
+          "-14549,-19600"
+        ],
+        "confirmStripHidden": true
+      },
+      "meaning": "拖动确实平移了相机；未弹确认条、未建造、待确认选点未丢"
+    },
+    "realDeviceTouchZoom": {
+      "method": "Edge CDP Input.dispatchTouchEvent（真机触屏注入，内容区坐标）",
+      "sequence": [
+        {
+          "action": "tap #zoom-in",
+          "viewBox": "-414.40 -154.61 702.37 457.17 → -344.16 -108.89 561.90 365.74"
+        },
+        {
+          "action": "tap #zoom-out",
+          "viewBox": "→ -414.40 -154.61 702.37 457.17"
+        },
+        {
+          "action": "tap #zoom-reset",
+          "viewBox": "→ -485.48 -316.00 970.97 632.00"
+        }
+      ],
+      "meaning": "自转后三个缩放按钮均被真实触屏命中并改变 viewBox；reset 有效；相机未因拖动/resize 被重置"
+    },
+    "screenshots": [
+      "probe/phase-d-universal-landscape-shots/android-07-game-started.png",
+      "probe/phase-d-universal-landscape-shots/android-08-vertex-tap.png",
+      "probe/phase-d-universal-landscape-shots/android-10-after-zoom-drag.png"
+    ],
+    "notCovered": [
+      "未完成摆位提交（村庄+道路+确认）与建造确认；本轮只验证命中/消歧/拖动/缩放",
+      "未做双指 pinch 手感（A-3 判据外，属 ULS-03 B06/真机 R06）"
+    ]
+  },
+  "A4_join_keyboard": {
+    "status": "PARTIAL — A-4a PASS / A-4b PASS（软键盘路径可用），但缺 enterkeyhint 与引导文案",
+    "state": {
+      "mode": "off",
+      "overlayHidden": false,
+      "activeElement": "f-name",
+      "ime": "mInputShown=true mIsInputViewShown=true"
+    },
+    "measurements": {
+      "innerHeight": 668,
+      "visualViewportHeight": 342.22,
+      "keyboardOccupyCssPx": 325.78,
+      "nameInputRect": {
+        "y": 277.64,
+        "h": 41.56,
+        "bottom": 319.2
+      },
+      "joinButtonRect": {
+        "y": 402.5,
+        "h": 41.7,
+        "bottom": 444.2
+      },
+      "sheetScrollHeight": 373,
+      "sheetClientHeight": 373,
+      "chineseInput": {
+        "method": "CDP Input.insertText",
+        "text": "小满测试",
+        "valueAfter": "小满测试"
+      }
+    },
+    "findings": [
+      "A-4a PASS：自转未发生（mode=off），昵称框正立、完整可见，中文可输入，IME 已弹出。",
+      "A-4b PASS：纯软键盘可完成入房。Gboard 因缺 enterkeyhint 两个输入框都显示「下一步」：第一次点按移到房间号，第二次点按提交；聚焦房间号时「加入」按钮也会随面板上移变为可见，可直接点。",
+      "仍建议补 enterkeyhint + 引导文案（design-strategist 已列为本轮后续要求），减少「两个下一步」的困惑；是否要求布局滚动由 C8 拍板。",
+      "未在 iOS Safari / 微信内置复验（无设备）；不同输入法（搜狗/系统中文）键盘动作标签未验证。"
+    ],
+    "screenshots": [
+      "probe/phase-d-universal-landscape-shots/android-11-join-keyboard.png",
+      "probe/phase-d-universal-landscape-shots/android-12-keyboard-focus.png",
+      "probe/phase-d-universal-landscape-shots/android-13-join-chinese.png",
+      "probe/phase-d-universal-landscape-shots/android-17-enter-submit.png",
+      "probe/phase-d-universal-landscape-shots/android-18-enter-joined.png",
+      "probe/phase-d-universal-landscape-shots/android-19-keyboard-ime-key.png",
+      "probe/phase-d-universal-landscape-shots/android-20-ime-next-tapped.png",
+      "probe/phase-d-universal-landscape-shots/android-21-room-keyboard.png",
+      "probe/phase-d-universal-landscape-shots/android-22-second-next.png",
+      "probe/phase-d-universal-landscape-shots/android-23-softkey-joined.png",
+      "probe/phase-d-universal-landscape-shots/android-24-enter-lobby.png",
+      "probe/phase-d-universal-landscape-shots/android-25-4p-game-start.png"
+    ],
+    "notCovered": [
+      "未在 iOS Safari / 微信内置复验（无设备）",
+      "未验证不同键盘（搜狗/系统中文）候选栏行为"
+    ],
+    "split": {
+      "A-4a_输入可用": {
+        "status": "PASS",
+        "evidence": {
+          "mode": "off",
+          "nameInputRect_y": 277.64,
+          "bottom": 319.2,
+          "fullyVisibleAboveKeyboard": true,
+          "chineseInput": "小满测试",
+          "ime": "mInputShown=true",
+          "visualViewportHeight": 342.22
+        }
+      },
+      "A-4b_完成路径可达": {
+        "status": "PASS",
+        "criterion": "(b) 回车/软键盘动作可提交成立",
+        "evidence": {
+          "form": "<form id=\"join-form\"> + <button type=\"submit\">加入</button>",
+          "enterkeyhint": null,
+          "inputmode": null,
+          "hardwareEnter": "adb shell input keyevent 66 在 #f-name 内触发提交：URL 变为 ?room=qa-ul-dv4&name=回车测试甲，进入等待页「1 / 4 人在座」",
+          "softKeyboardAction": {
+            "observedLabel": "下一步（Gboard；两个输入框都显示「下一步」，未显示「前往/完成/Go」）",
+            "firstTap": "点按 (1147,2613) → 焦点从 #f-name 移到 #f-room，未提交；此时「加入」按钮随面板上移变为可见（截图 android-21）",
+            "secondTap": "在 #f-room 再点 (1147,2613) → 提交：URL 变为 ?room=qa-ul-dv5&name=软键测试乙，进入等待页「1 / 4 人在座」（截图 android-23）"
+          },
+          "conclusion": "纯软键盘路径可用：输入昵称 →「下一步」→「下一步」提交；或「下一步」后直接点已可见的「加入」。"
+        }
+      },
+      "followupRequired": [
+        "补 enterkeyhint（如第一个输入框 enterkeyhint=\"next\"、最后一个 enterkeyhint=\"go\" 或 \"send\"），让软键盘显示明确动作而非两个「下一步」",
+        "补 §1.2.1 引导文案（键盘态下一步/提交提示）",
+        "overlay 层溢出：design-strategist 指出 .sheet 无 max-height/overflow，实际溢出在 #overlay（position:fixed; display:grid; place-items:center）；若要支持滚动，需作用于 #overlay 或新增滚动包裹层 + align-items:start，不能只改 .sheet"
+      ],
+      "note": "A-4b 判定按 design-strategist 的「至少一条成立」口径：软键盘动作与硬件回车均可提交，故 PASS；不再要求改布局，但 enterkeyhint/引导文案为后续要求。"
+    },
+    "enterSubmits": true,
+    "evidence1_enter_submit": {
+      "method": "打开 ?room=qa-ul-dv6 → 聚焦 #f-name → CDP Input.insertText 输入「回车证据丙」→ adb shell input keyevent 66（不点加入按钮）",
+      "before": {
+        "health": {
+          "rooms": [
+            {
+              "id": "qa-ul-dv5",
+              "players": 1
+            }
+          ]
+        },
+        "url": "?room=qa-ul-dv6"
+      },
+      "after": {
+        "health": {
+          "rooms": [
+            {
+              "id": "qa-ul-dv5",
+              "players": 1
+            },
+            {
+              "id": "qa-ul-dv6",
+              "players": 1,
+              "connected": 1,
+              "started": false,
+              "turn": 0
+            }
+          ]
+        },
+        "url": "?room=qa-ul-dv6&name=%E5%9B%9E%E8%BD%A6%E8%AF%81%E6%8D%AE%E4%B8%99",
+        "overlayHidden": false,
+        "sheetTextPrefix": "房间 QA-UL-DV6 / 1 / 4 人在座。人齐会自动开局… / 回车证据丙（你）在线 / 空位 2 3 4 / 开始游戏",
+        "mode": "off",
+        "view": null,
+        "note": "overlay 仍可见是因为 LOBBY 也复用 #overlay；但 #sheet 内容已从入房表单切换为等待开局列表，即提交成功。"
+      },
+      "endToEnd": {
+        "after3Fillers": {
+          "health": {
+            "id": "qa-ul-dv6",
+            "players": 4,
+            "connected": 1,
+            "started": true,
+            "turn": 1
+          },
+          "browser": {
+            "overlayHidden": true,
+            "mode": "css",
+            "rotation": "90deg",
+            "view": {
+              "phase": "setup",
+              "seat": 0,
+              "roomId": "qa-ul-dv6"
+            }
+          }
+        },
+        "conclusion": "回车提交 → 入房 → 4 人自动开局 → 自转生效（S2）全链路成立"
+      }
+    },
+    "evidence2_overflow_layer": {
+      "keyboardUp": {
+        "visualViewportHeight": 342.22222900390625,
+        "visualViewportWidth": 372.1481628417969
+      },
+      "overlay": {
+        "scrollHeight": 668,
+        "clientHeight": 668,
+        "offsetHeight": 668,
+        "overflowY": "visible",
+        "overflow": "visible",
+        "display": "grid",
+        "placeItems": "center",
+        "padding": "20px",
+        "rect": {
+          "y": 0,
+          "h": 668.1481323242188,
+          "bottom": 668.1481323242188
+        }
+      },
+      "sheet": {
+        "scrollHeight": 373,
+        "clientHeight": 373,
+        "offsetHeight": 376,
+        "overflowY": "visible",
+        "rect": {
+          "y": 145.92129516601562,
+          "h": 376.3055725097656,
+          "bottom": 522.2268676757812
+        }
+      },
+      "joinButton": {
+        "y": 402.495361328125,
+        "h": 41.703704833984375,
+        "bottom": 444.1990661621094,
+        "visibleAboveKeyboard": false,
+        "overlapPx": 102
+      },
+      "nameInput": {
+        "y": 277.6435241699219,
+        "bottom": 319.19908142089844
+      },
+      "conclusion": "#overlay 高度=布局视口 668（不是 visualViewport 342），overflow:visible、scrollHeight==clientHeight，本身不可滚动；.sheet 同样 overflow:visible 且 373==373。因此「溢出」表现为：居中布局的 sheet 有 102px（按钮底 444.2 vs 可视 342.2）落在键盘下方，且 overlay/sheet 都不能滚动。若要做键盘态滚动，必须让 #overlay 高度跟 visualViewport 并设 overflow:auto（或新增滚动包裹层 + align-items:start）；只改 .sheet 无效。",
+      "evidence2File": "/tmp/ul-evidence2.json"
+    },
+    "note": "A-4b PASS：回车可提交且端到端进房/开局成功；软键盘「下一步×2」也可提交。CTA 在仅聚焦昵称时仍被键盘遮挡 102px，记为体验缺陷（非阻断），建议 enterkeyhint + 引导文案。"
+  },
+  "A6_safe_area": {
+    "status": "PARTIAL — Android 安全区为 0，无法验证刘海/挖孔遮挡",
+    "observed": {
+      "ulSafeTop": "0px",
+      "ulSafeRight": "0px",
+      "ulSafeBottom": "0px",
+      "ulSafeLeft": "0px",
+      "hudRect": {
+        "x": 12,
+        "y": 616.1,
+        "w": 348.1,
+        "h": 44,
+        "bottom": 660.1
+      },
+      "exitRect": {
+        "x": 272.5,
+        "y": 616.1,
+        "w": 80.8,
+        "h": 44
+      },
+      "viewport": {
+        "w": 372,
+        "h": 668
+      },
+      "horizontalScroll": false
+    },
+    "findings": [
+      "Android 12 / Edge 的 env(safe-area-inset-*) 四边均为 0px，无法复现刘海/灵动岛/底部手势条遮挡",
+      "HUD 与出口矩形均在 372×668 视口内，无横向滚动",
+      "苹果刘海/灵动岛与 Android 挖孔机仍需真机（UL-D04 / UL-R06 / UX-A6 保持 BLOCKED）"
+    ]
+  },
+  "A13_physical_rotation": {
+    "status": "BLOCKED",
+    "reason": "本会话无法让真实用户物理转动手机；ADB 强制旋转按 docs/17 附录 A R1 只能作辅助观测，不得判 PASS。本轮未使用任何 user-rotation 命令。"
+  },
+  "environmentNotes": [
+    "adb reverse 需保持通道；厂商浏览器（夸克/华为）打开 127.0.0.1:8794 显示错误页且服务端无请求，未能取证；Edge 正常加载。",
+    "adb input tap 使用屏幕像素，与 CDP 内容区坐标存在浏览器工具栏偏移；精确按钮使用 Edge CDP Input.dispatchTouchEvent，粗定位用 adb input tap。两者均为真机真实触摸，已在记录中分别标注。",
+    "uiautomator dump 在 WebView 场景只暴露少量文本节点（文本在 canvas/SVG 中不可见），因此命中结论以 CDP elementFromPoint + picked ID 为准，并附截图。",
+    "本轮未修改设备旋转设置、未安装/卸载应用、未拨号、未触碰 release/ 与线上房间、未执行 git 写操作。"
+  ]
+}

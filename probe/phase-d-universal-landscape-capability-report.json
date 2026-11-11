@@ -1,0 +1,1947 @@
+{
+  "schema": "hexfront.universal-landscape/1",
+  "generatedAt": "2026-11-08T12:00:40.150Z",
+  "run": {
+    "mode": "capability-only",
+    "phase": 1,
+    "fullModeExecuted": false,
+    "strictPolicy": "用户最严格口径：浏览器真实指针复验 + 真机证据缺一不可；CDP 能力模拟 / 模拟视口 / 单测 / jsdom 不得冒充真机通过。",
+    "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "chromeVersion": "Chrome/156.0.8078.80",
+    "cdpPort": 9415,
+    "backendPort": 8793,
+    "vitePort": 5183,
+    "baseUrl": null,
+    "room": "qa-ul-mw7s6etc",
+    "players": 4,
+    "allowInference": false,
+    "supersededBaselines": [
+      {
+        "baseline": "probe/phase-d-landscape-button-check.mjs 9 PASS / 0 FAIL",
+        "status": "SUPERSEDED",
+        "reason": "该脚本验证的是旧「进入横屏」主按钮必经关卡；docs/17 §2.4/§4.1 已废弃该主路径，#portrait-gate 永久 hidden、#portrait-landscape 仅保留为「尝试系统横屏（可选）」。不得用其 PASS 证明无回归；回归基线改以 apps/web/test（phase-d-fix-landscape 34 条 + uls-landscape-hit 17 条）与全仓 429 passed + 2 todo 为准。"
+      }
+    ],
+    "node": "v22.22.2",
+    "platform": "darwin",
+    "environmentNotes": [
+      "Chrome 启动参数含 --no-proxy-server；CDP HTTP 用 node:http 直连 127.0.0.1，绕开 HTTP_PROXY。",
+      "已知噪声：CVDisplayLinkCreateWithCGDisplay failed / Trying to load the allocator multiple times，不影响使用。",
+      "旋转几何口径：布局盒 844×390（横屏）+ rotate(90deg) → bbox 390×844（竖屏形，盖满视口）。判据同时记录 computed width/height 与 bbox。",
+      "UX 辅助表达式已在 capability-only 阶段预跑，避免阶段二因表达式错误中断；结果见 uxSupplement.cdp.capabilitySanity。",
+      "capability-only 未启动任何 HTTP/WS 服务、未运行 pnpm test/typecheck/build、未连任何房间。",
+      "capability-only 只运行 UL-CAP-01..10 / UL-ENV-01..02；A/B/C/D/E/F/G 组与 UL-UX01..14 全部保持 NOT_RUN，R 组与 A-3/A-4/A-6/A-13 真机必需项全部 BLOCKED。",
+      "UL-UX01..14 对应 docs/17-universal-landscape-ux.md §7 A-1…A-14；A-8 状态机以 §3.1 的 S0–S8 共 9 态为准。"
+    ],
+    "commands": {
+      "capabilityOnly": "node probe/phase-d-universal-landscape-check.mjs --mode=capability-only",
+      "full": "node probe/phase-d-universal-landscape-check.mjs --mode=full --shots"
+    }
+  },
+  "reportScope": "PHASE1_CAPABILITY_SNAPSHOT — 仅记录 CDP/浏览器能力自检；所有游戏复验项 NOT_RUN，真机项 BLOCKED。不是验收结论。",
+  "disclaimer": "所有检查项初始 NOT_RUN；只有实际执行并写入 observed 才可能 PASS/FAIL。CDP 能力模拟 / UA 伪装 / 模拟视口 / 单测 / jsdom 一律不得写成真机通过。模拟视口是真实 CSS 视口但不是真机。CAP-* 仅证明脚本能力，不构成游戏功能结论。",
+  "checks": [
+    {
+      "id": "UL-CAP-01",
+      "area": "capability",
+      "requirement": "CDP 能连上无头 Chrome（/json/version + target WebSocket）",
+      "evidenceType": "CDP·能力模拟",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "browser": "Chrome/156.0.8078.80",
+        "protocol": "1.3"
+      },
+      "expected": "CDP 连通并返回版本",
+      "notes": "实测",
+      "at": "2026-11-08T12:00:37.288Z"
+    },
+    {
+      "id": "UL-CAP-02",
+      "area": "capability",
+      "requirement": "竖屏真实 CSS 视口 390×844 / 375×667 精确、dpr=2、portrait=true",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": [
+        {
+          "requested": "390x844",
+          "w": 390,
+          "h": 844,
+          "requestedOrientation": {
+            "type": "portraitPrimary",
+            "angle": 0
+          },
+          "observed": {
+            "innerWidth": 390,
+            "innerHeight": 844,
+            "dpr": 2,
+            "portrait": true,
+            "landscape": false,
+            "orientationType": "portrait-primary",
+            "orientationAngle": 0,
+            "docW": 390,
+            "docH": 844
+          }
+        },
+        {
+          "requested": "375x667",
+          "w": 375,
+          "h": 667,
+          "requestedOrientation": {
+            "type": "portraitPrimary",
+            "angle": 0
+          },
+          "observed": {
+            "innerWidth": 375,
+            "innerHeight": 667,
+            "dpr": 2,
+            "portrait": true,
+            "landscape": false,
+            "orientationType": "portrait-primary",
+            "orientationAngle": 0,
+            "docW": 375,
+            "docH": 667
+          }
+        }
+      ],
+      "expected": "竖屏视口精确且 portrait=true",
+      "notes": "CDP 真实 CSS 视口能力自检",
+      "at": "2026-11-08T12:00:38.535Z"
+    },
+    {
+      "id": "UL-CAP-03",
+      "area": "capability",
+      "requirement": "三档横屏真实 CSS 视口 667×375 / 844×390 / 932×430 精确且 landscape=true",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": [
+        {
+          "requested": "667x375",
+          "w": 667,
+          "h": 375,
+          "requestedOrientation": {
+            "type": "landscapePrimary",
+            "angle": 90
+          },
+          "observed": {
+            "innerWidth": 667,
+            "innerHeight": 375,
+            "dpr": 2,
+            "portrait": false,
+            "landscape": true,
+            "orientationType": "landscape-primary",
+            "orientationAngle": 90,
+            "docW": 667,
+            "docH": 375
+          }
+        },
+        {
+          "requested": "844x390",
+          "w": 844,
+          "h": 390,
+          "requestedOrientation": {
+            "type": "landscapePrimary",
+            "angle": 90
+          },
+          "observed": {
+            "innerWidth": 844,
+            "innerHeight": 390,
+            "dpr": 2,
+            "portrait": false,
+            "landscape": true,
+            "orientationType": "landscape-primary",
+            "orientationAngle": 90,
+            "docW": 844,
+            "docH": 390
+          }
+        },
+        {
+          "requested": "932x430",
+          "w": 932,
+          "h": 430,
+          "requestedOrientation": {
+            "type": "landscapePrimary",
+            "angle": 90
+          },
+          "observed": {
+            "innerWidth": 932,
+            "innerHeight": 430,
+            "dpr": 2,
+            "portrait": false,
+            "landscape": true,
+            "orientationType": "landscape-primary",
+            "orientationAngle": 90,
+            "docW": 932,
+            "docH": 430
+          }
+        }
+      ],
+      "expected": "三档横屏视口精确且 landscape=true",
+      "notes": "CDP 真实 CSS 视口能力自检",
+      "at": "2026-11-08T12:00:38.535Z"
+    },
+    {
+      "id": "UL-CAP-04",
+      "area": "capability",
+      "requirement": "可构造「系统报告横屏但视口仍竖屏」并如实记录原始值（华为竖条坑）",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.1 / docs16 §1.1",
+      "status": "PASS",
+      "observed": {
+        "requested": "390x844@landscape-report",
+        "w": 390,
+        "h": 844,
+        "requestedOrientation": {
+          "type": "landscapePrimary",
+          "angle": 90
+        },
+        "observed": {
+          "innerWidth": 390,
+          "innerHeight": 844,
+          "dpr": 2,
+          "portrait": true,
+          "landscape": false,
+          "orientationType": "landscape-primary",
+          "orientationAngle": 90,
+          "docW": 390,
+          "docH": 844
+        }
+      },
+      "expected": "矛盾方向组合可构造，原始值如实记录",
+      "notes": "CDP 真实 CSS 视口能力自检；不代表华为浏览器真机",
+      "at": "2026-11-08T12:00:38.535Z"
+    },
+    {
+      "id": "UL-CAP-05",
+      "area": "capability",
+      "requirement": "addScriptToEvaluateOnNewDocument 可在页面脚本前剥离 lock / requestFullscreen",
+      "evidenceType": "CDP·能力模拟",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "lockType": "undefined",
+        "fullscreenType": "undefined",
+        "probe": true,
+        "injectErrors": [],
+        "orientationType": "portrait-primary"
+      },
+      "expected": "剥离 API 生效",
+      "notes": "能力自检",
+      "at": "2026-11-08T12:00:38.743Z"
+    },
+    {
+      "id": "UL-CAP-06",
+      "area": "capability",
+      "requirement": "可 mock lock resolve + 改写 orientation + 派发 orientationchange 并计数",
+      "evidenceType": "CDP·能力模拟",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "before": {
+          "type": "portrait-primary",
+          "angle": 0
+        },
+        "after": {
+          "type": "landscape-primary",
+          "angle": 90
+        },
+        "lockReturn": "undefined",
+        "probe": {
+          "locks": [
+            "landscape"
+          ],
+          "fullscreens": 0,
+          "orientationchanges": 1,
+          "resizes": 1,
+          "errors": [],
+          "injectErrors": [],
+          "mock": {
+            "lock": "resolve",
+            "fullscreen": "resolve",
+            "orientationApi": "present",
+            "applyOrientation": true,
+            "fireOrientationChange": true,
+            "initialType": "portrait-primary",
+            "initialAngle": 0
+          },
+          "injectedAt": 1794139238750
+        }
+      },
+      "expected": "锁定成功可模拟",
+      "notes": "能力自检；不代表真机锁定成功",
+      "at": "2026-11-08T12:00:38.952Z"
+    },
+    {
+      "id": "UL-CAP-07",
+      "area": "capability",
+      "requirement": "可解析 ±90° transform 矩阵，且 computed 布局宽高与 bbox 宽高互换",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "transform": "matrix(0, 1, -1, 0, 390, 0)",
+        "deg": 90,
+        "layoutW": 844,
+        "layoutH": 390,
+        "bboxW": 390,
+        "bboxH": 844,
+        "innerWidth": 390,
+        "innerHeight": 844
+      },
+      "expected": "旋转几何可测",
+      "notes": "能力自检；注意 bbox 是竖屏形，不能只看 bbox 宽高",
+      "at": "2026-11-08T12:00:39.166Z"
+    },
+    {
+      "id": "UL-CAP-08",
+      "area": "capability",
+      "requirement": "elementFromPoint 命中旋转后元素的视觉中心",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "rect": {
+          "cx": 340,
+          "cy": 80,
+          "w": 60,
+          "h": 120
+        },
+        "hit": {
+          "tag": "BUTTON",
+          "id": "qa",
+          "cls": "",
+          "closestId": "qa"
+        }
+      },
+      "expected": "视觉中心命中 #qa",
+      "notes": "能力自检",
+      "at": "2026-11-08T12:00:39.167Z"
+    },
+    {
+      "id": "UL-CAP-09",
+      "area": "capability",
+      "requirement": "真实鼠标 / 触屏指针事件到达旋转后元素并记录 pointerType 与 client 坐标",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "mouseHits": [
+          {
+            "t": "pointerdown",
+            "pt": "mouse",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "pointerup",
+            "pt": "mouse",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "click",
+            "pt": "mouse",
+            "x": 340,
+            "y": 80
+          }
+        ],
+        "touchHits": [
+          {
+            "t": "pointerdown",
+            "pt": "touch",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "pointerup",
+            "pt": "touch",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "click",
+            "pt": "touch",
+            "x": 340,
+            "y": 80
+          }
+        ]
+      },
+      "expected": "旋转后真实指针可达",
+      "notes": "能力自检",
+      "at": "2026-11-08T12:00:39.545Z"
+    },
+    {
+      "id": "UL-CAP-10",
+      "area": "capability",
+      "requirement": "截图非空 + console error / exceptionThrown / unhandledrejection 可采集",
+      "evidenceType": "CDP·日志",
+      "source": "ULS-03 §3.1",
+      "status": "PASS",
+      "observed": {
+        "shotBytes": 11932
+      },
+      "expected": "证据采集能力可用",
+      "notes": "能力自检",
+      "at": "2026-11-08T12:00:39.589Z"
+    },
+    {
+      "id": "UL-ENV-01",
+      "area": "environment",
+      "requirement": "独立端口仅 127.0.0.1，不碰用户 8787 / 5173 / 8792",
+      "evidenceType": "汇编 + 环境",
+      "source": "ULS-03 §3.2",
+      "status": "PASS",
+      "observed": {
+        "cdpPort": 9415,
+        "backendPort": 8793,
+        "vitePort": 5183,
+        "servicesStarted": false,
+        "userPortsUntouched": "8787 / 5173 / 8791 / 8792 / 9411 / 9413"
+      },
+      "expected": "capability-only 不起服务；端口与既有服务全部错开",
+      "notes": "能力自检阶段仅绑定 CDP 调试端口",
+      "at": "2026-11-08T12:00:39.591Z"
+    },
+    {
+      "id": "UL-ENV-02",
+      "area": "environment",
+      "requirement": "独立房间号，不带 sharecode，不连线上 / main 房间",
+      "evidenceType": "汇编 + 环境",
+      "source": "ULS-03 §3.2",
+      "status": "PASS",
+      "observed": {
+        "room": "qa-ul-mw7s6etc",
+        "sharecodeUsed": false,
+        "onlineRoomsTouched": false
+      },
+      "expected": "独立房间号且非 main、无 sharecode",
+      "notes": "能力自检不连房间",
+      "at": "2026-11-08T12:00:39.591Z"
+    },
+    {
+      "id": "UL-ENV-03",
+      "area": "environment",
+      "requirement": "测完关闭服务 / target / Chrome，清理本脚本自建临时 profile",
+      "evidenceType": "汇编 + 环境",
+      "source": "ULS-03 §3.2",
+      "status": "PASS",
+      "observed": {
+        "chromeKilled": true,
+        "servicesStopped": false,
+        "targetsClosed": 1,
+        "profileRemoved": true,
+        "notes": [],
+        "spawnedTargets": 1
+      },
+      "expected": "测完关闭服务 / target / Chrome，清理本脚本自建临时 profile",
+      "notes": "capability-only 未启动服务",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-A01",
+      "area": "A-能力分支",
+      "requirement": "iOS Safari 模拟（无 lock / 无可靠 fullscreen）→ CSS 自旋转生效",
+      "evidenceType": "CDP·能力模拟 + 真实视口",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A02",
+      "area": "A-能力分支",
+      "requirement": "iOS 模拟不依赖系统 API、无静默失败、无反复提示、无 unhandledrejection",
+      "evidenceType": "CDP·能力模拟 + 日志",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A03",
+      "area": "A-能力分支",
+      "requirement": "厂商浏览器 lock 拒绝 → CSS 自旋转，rejection 被 catch",
+      "evidenceType": "CDP·能力模拟 + 日志",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A04",
+      "area": "A-能力分支",
+      "requirement": "screen.orientation / lock 整体缺失 → 不抛异常、落到自旋转",
+      "evidenceType": "CDP·能力模拟",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A05",
+      "area": "A-能力分支",
+      "requirement": "requestFullscreen 被拒但 lock 可用 → 仍呈现横屏、无静默失败",
+      "evidenceType": "CDP·能力模拟",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A06",
+      "area": "A-能力分支",
+      "requirement": "系统锁定成功（mock resolve + orientationchange + 视口切横屏）→ 取消 CSS 旋转",
+      "evidenceType": "CDP·能力模拟 + 真实视口",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A07",
+      "area": "A-能力分支",
+      "requirement": "锁定成功后回竖屏 → 重新自旋转且不双重旋转",
+      "evidenceType": "CDP·能力模拟 + 真实视口",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A08",
+      "area": "A-能力分支",
+      "requirement": "lock 假成功（resolve 但方向/视口仍竖屏）→ 不误取消自旋转",
+      "evidenceType": "CDP·能力模拟",
+      "source": "ULS-03 §3.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-A09",
+      "area": "A-能力分支",
+      "requirement": "系统报告横屏但 CSS 视口仍竖屏（华为竖条坑）→ 以视口为准自旋转、无竖条黑边",
+      "evidenceType": "CDP·真实视口 + 人工",
+      "source": "ULS-03 §3.3 / docs16 §1.1",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B01",
+      "area": "B-指针命中",
+      "requirement": "旋转后棋盘候选点选命中目标并出现预览 / 确认条",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B02",
+      "area": "B-指针命中",
+      "requirement": "旋转后缩放按钮改变 viewBox 且不误选棋盘",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B03",
+      "area": "B-指针命中",
+      "requirement": "旋转后弃牌加减（--seven 状态）计数变化且提交按钮同步",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B04",
+      "area": "B-指针命中",
+      "requirement": "旋转后强盗按钮可真实点击",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B05",
+      "area": "B-指针命中",
+      "requirement": "旋转后水平 + 垂直拖动 >8 CSS px 不建造、不弹确认条",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B06",
+      "area": "B-指针命中",
+      "requirement": "旋转后双指 pinch 结束不误建造、镜头不回弹",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B07",
+      "area": "B-指针命中",
+      "requirement": "旋转后关键按钮 elementFromPoint 命中自身、不被遮挡",
+      "evidenceType": "CDP·真实视口 + 真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B08",
+      "area": "B-指针命中",
+      "requirement": "触屏 pointerType=touch 的 tap 在旋转后同样生效",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-B09",
+      "area": "B-指针命中",
+      "requirement": "旋转后关键按钮视觉命中区 ≥44×44 CSS px、无重叠误触",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.4",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C01",
+      "area": "C-生命周期",
+      "requirement": "入房阶段（未收到开局 STATE）竖屏不旋转，入房控件可点",
+      "evidenceType": "CDP·真实指针 + 真实视口",
+      "source": "ULS-03 §3.5",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C02",
+      "area": "C-生命周期",
+      "requirement": "输入框 focus / visualViewport 变化时不旋转（真机键盘另由 UL-R05 补证）",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.5",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C03",
+      "area": "C-生命周期",
+      "requirement": "收到开局 STATE 或带 view 的 WELCOME（view!==null，UX §1.2）后从 pre-game 切到 css-rotate / system-locked",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.5 / docs17 §1.2",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C04",
+      "area": "C-生命周期",
+      "requirement": "旋转不发游戏命令、不退出房间、不丢待确认选择",
+      "evidenceType": "CDP·真实指针 + 协议集成",
+      "source": "ULS-03 §3.5 / 指南 4.2",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C05",
+      "area": "C-生命周期",
+      "requirement": "旋转后收到 STATE 不重置相机（viewBox 不变）",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.5 / 指南 5.1",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C06",
+      "area": "C-生命周期",
+      "requirement": "入房→开局→旋转→锁定/降级→回竖屏 全程无 console error / unhandledrejection",
+      "evidenceType": "CDP·日志",
+      "source": "ULS-03 §3.5",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-C07",
+      "area": "C-生命周期",
+      "requirement": "旋转后确认条 / 抽屉 / 当前任务不滚出视野",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.5 / 指南 4.1",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-D01",
+      "area": "D-安全区",
+      "requirement": "旋转后顶栏 / 底部动作 / 确认按钮矩形完全落在视觉视口内",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.6",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-D02",
+      "area": "D-安全区",
+      "requirement": "env(safe-area-inset-*) 旋转后映射到正确的视觉边",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.6",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-D03",
+      "area": "D-安全区",
+      "requirement": "无横向滚动 / 竖条 / 黑边 / 裁切",
+      "evidenceType": "CDP·真实视口 + 人工",
+      "source": "ULS-03 §3.6",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-D04",
+      "area": "D-安全区",
+      "requirement": "真机刘海 / 圆角 / 浏览器栏 / 软键盘下不遮挡",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.6",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E01",
+      "area": "E-视口矩阵",
+      "requirement": "竖屏 390×844 / 375×667 自旋转画布铺满（布局宽≈innerHeight）",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E02",
+      "area": "E-视口矩阵",
+      "requirement": "667×375 不重复旋转、gate 隐藏、rail 展开、board-stage 可见",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E03",
+      "area": "E-视口矩阵",
+      "requirement": "844×390 同上",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E04",
+      "area": "E-视口矩阵",
+      "requirement": "932×430 同上",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E05",
+      "area": "E-视口矩阵",
+      "requirement": "portrait→landscape→portrait 动态切换不双重旋转、不漏旋转",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E06",
+      "area": "E-视口矩阵",
+      "requirement": "1024×768 平板 / 1366×768 桌面不误触发自旋转",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-E07",
+      "area": "E-视口矩阵",
+      "requirement": "每档记录 innerWidth/Height/dpr/orientation/matchMedia 原始值（方法学）",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.7",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-F01",
+      "area": "F-出口",
+      "requirement": "「仍按竖屏查看」后多次 resize / orientationchange / STATE 不反复弹",
+      "evidenceType": "CDP·真实指针 + 真实视口",
+      "source": "ULS-03 §3.8",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-F02",
+      "area": "F-出口",
+      "requirement": "dismiss 后有可恢复入口，真实点击可重新启用旋转或再次提示",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.8",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-F03",
+      "area": "F-出口",
+      "requirement": "dismiss 不丢座位、不提交草稿、横屏视口下仍不显示卡片",
+      "evidenceType": "CDP·真实指针 + 协议集成",
+      "source": "ULS-03 §3.8",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-F04",
+      "area": "F-出口",
+      "requirement": "拒绝 / 缺失 lock 时不静默失败、不假装成功",
+      "evidenceType": "CDP·能力模拟 + 真实视口",
+      "source": "ULS-03 §3.8",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-F05",
+      "area": "F-出口",
+      "requirement": "状态提示不靠颜色 / 声音 / hover 单独传递，旋转后文案可读、焦点可见",
+      "evidenceType": "CDP·真实视口 + 人工",
+      "source": "ULS-03 §3.8",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G01",
+      "area": "G-回归",
+      "requirement": "387 passed + 2 todo / typecheck / build 基线不退化",
+      "evidenceType": "单测 + 汇编",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G02",
+      "area": "G-回归",
+      "requirement": "DOM id 对账（16 个既有 id 全部存在，删除需登记为有意变更）",
+      "evidenceType": "CDP·真实视口 + 汇编",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G03",
+      "area": "G-回归",
+      "requirement": "8 CSS px 拖动阈值 / 双指 / pointercancel / 失焦不残留手势状态",
+      "evidenceType": "CDP·真实指针",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G04",
+      "area": "G-回归",
+      "requirement": "phase-d-landscape-button-check.mjs 9 PASS / 0 FAIL 不退化",
+      "evidenceType": "CDP·真实指针 + 汇编",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G05",
+      "area": "G-回归",
+      "requirement": "phase-d-verification-plan.md 的 D-* / CASE-* / EXIT-* 不新增 FAIL",
+      "evidenceType": "汇编",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G06",
+      "area": "G-回归",
+      "requirement": "旋转后 SVG getScreenCTM 与 bbox 一致，client→SVG 无 X/Y 反转",
+      "evidenceType": "CDP·真实视口 + 真实指针",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-G07",
+      "area": "G-回归",
+      "requirement": "三档横屏布局回归（gate / rail / board-stage）",
+      "evidenceType": "CDP·真实视口",
+      "source": "ULS-03 §3.9",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-R01",
+      "area": "R-真机",
+      "requirement": "iPhone Safari 真机：无 lock / fullscreen 下自旋转 + 真实手指命中",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.10",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "本会话无 iOS Safari 真机、无支持 lock 的 Android Chrome 真机；ADB 仅可见 1 台休眠的华为 ADY_AL00（Android 12，无 Chrome），且阶段一不实跑完整流程。见 probe/phase-d-universal-landscape-plan.md §5。禁止写成真机通过。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-R02",
+      "area": "R-真机",
+      "requirement": "华为 / 小米 / OPPO 厂商浏览器拒绝 lock → 自旋转，无竖条黑边",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.10",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "本会话无 iOS Safari 真机、无支持 lock 的 Android Chrome 真机；ADB 仅可见 1 台休眠的华为 ADY_AL00（Android 12，无 Chrome），且阶段一不实跑完整流程。见 probe/phase-d-universal-landscape-plan.md §5。禁止写成真机通过。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-R03",
+      "area": "R-真机",
+      "requirement": "微信内置浏览器（iOS WKWebView / Android XWEB·X5）自旋转 + WS 可达",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.10",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "本会话无 iOS Safari 真机、无支持 lock 的 Android Chrome 真机；ADB 仅可见 1 台休眠的华为 ADY_AL00（Android 12，无 Chrome），且阶段一不实跑完整流程。见 probe/phase-d-universal-landscape-plan.md §5。禁止写成真机通过。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-R04",
+      "area": "R-真机",
+      "requirement": "Android Chrome 支持 lock 的成功路径与取消自旋转",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.10",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "本会话无 iOS Safari 真机、无支持 lock 的 Android Chrome 真机；ADB 仅可见 1 台休眠的华为 ADY_AL00（Android 12，无 Chrome），且阶段一不实跑完整流程。见 probe/phase-d-universal-landscape-plan.md §5。禁止写成真机通过。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-R05",
+      "area": "R-真机",
+      "requirement": "真机物理旋转 + 软键盘 + 电话/语音后台返回",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.10",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "本会话无 iOS Safari 真机、无支持 lock 的 Android Chrome 真机；ADB 仅可见 1 台休眠的华为 ADY_AL00（Android 12，无 Chrome），且阶段一不实跑完整流程。见 probe/phase-d-universal-landscape-plan.md §5。禁止写成真机通过。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-R06",
+      "area": "R-真机",
+      "requirement": "真机 dismiss 出口与恢复 + 刘海 / 圆角 / 浏览器栏",
+      "evidenceType": "真机 ADB + 人工",
+      "source": "ULS-03 §3.10",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "本会话无 iOS Safari 真机、无支持 lock 的 Android Chrome 真机；ADB 仅可见 1 台休眠的华为 ADY_AL00（Android 12，无 Chrome），且阶段一不实跑完整流程。见 probe/phase-d-universal-landscape-plan.md §5。禁止写成真机通过。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-UX01",
+      "area": "UX-规格",
+      "requirement": "A-1 iOS Safari 模拟：无 lock / 无可靠 requestFullscreen 下直接落 S2 自转、不静默失败、无必须点按关卡、无技术黑话",
+      "evidenceType": "CDP·能力模拟 + 真实视口",
+      "source": "docs17 §7 A-1",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX02",
+      "area": "UX-规格",
+      "requirement": "A-2 厂商浏览器拒绝锁定：自转保持 / 立即生效、画面不闪、不重试、不回退化竖屏、不重复弹提示",
+      "evidenceType": "CDP·能力模拟 + 真实视口",
+      "source": "docs17 §7 A-2",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX03",
+      "area": "UX-规格",
+      "requirement": "A-3 CSS 自转后棋盘真实点击命中（真机 input tap + uiautomator dump；点 A 不落 B、拖动不误建造、相机不重置、选点不丢）",
+      "evidenceType": "真机 ADB + 人工（CDP 仅辅助，不得单独判通过）",
+      "source": "docs17 §7 A-3",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "docs17 §7 明确本条**必须真机**（A-3 真机 input tap + uiautomator dump；A-4 中文软键盘；A-6 刘海/挖孔/手势条；A-13 用户物理转动手机，不能用 ADB 强制旋转替代）。指南 §13.1：模拟视口 / CDP 截图 / 单测不得单独判通过。本会话无 iOS 真机、Android 设备休眠且阶段一不实跑 → BLOCKED。CDP 辅助观测只记录在 uxSupplement.cdp，不写成 PASS。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-UX04",
+      "area": "UX-规格",
+      "requirement": "A-4 入房软键盘 375×667 / 390×844：输入框正立不裁切、中文可输入、全程无自转无提示（补 docs/16 §4 D8 缺口）",
+      "evidenceType": "真机 ADB + 人工（CDP visualViewport 仅辅助）",
+      "source": "docs17 §7 A-4 / docs16 §4 D8",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "docs17 §7 明确本条**必须真机**（A-3 真机 input tap + uiautomator dump；A-4 中文软键盘；A-6 刘海/挖孔/手势条；A-13 用户物理转动手机，不能用 ADB 强制旋转替代）。指南 §13.1：模拟视口 / CDP 截图 / 单测不得单独判通过。本会话无 iOS 真机、Android 设备休眠且阶段一不实跑 → BLOCKED。CDP 辅助观测只记录在 uxSupplement.cdp，不写成 PASS。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-UX05",
+      "area": "UX-规格",
+      "requirement": "A-5 三档横屏视口回归：503/658/736px 参考、9 PASS 基线、自转画布铺满无黑边 / 中间竖条",
+      "evidenceType": "CDP·真实视口 + 人工",
+      "source": "docs17 §7 A-5",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX06",
+      "area": "UX-规格",
+      "requirement": "A-6 旋转后安全区：env(safe-area-inset-*) 重映射，刘海 / 挖孔 / 手势条不压顶栏与底部固定按钮",
+      "evidenceType": "真机 ADB + 人工（CDP 仅辅助）",
+      "source": "docs17 §7 A-6",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "docs17 §7 明确本条**必须真机**（A-3 真机 input tap + uiautomator dump；A-4 中文软键盘；A-6 刘海/挖孔/手势条；A-13 用户物理转动手机，不能用 ADB 强制旋转替代）。指南 §13.1：模拟视口 / CDP 截图 / 单测不得单独判通过。本会话无 iOS 真机、Android 设备休眠且阶段一不实跑 → BLOCKED。CDP 辅助观测只记录在 uxSupplement.cdp，不写成 PASS。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-UX07",
+      "area": "UX-规格",
+      "requirement": "A-7 阶段迁移：LOBBY→STATE、带 view 的 WELCOME 恢复路径、结束页→回到房间退出自转",
+      "evidenceType": "CDP·真实视口 + 协议集成",
+      "source": "docs17 §7 A-7 / §1.2 / E6",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX08",
+      "area": "UX-规格",
+      "requirement": "A-8 状态机 S0–S8 共 9 态逐态覆盖（S1 不停留、S3 超时按 S5、S7/S8 不弹提示）",
+      "evidenceType": "CDP·真实视口 + 单测（状态迁移） + 人工",
+      "source": "docs17 §3.1 / §7 A-8",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX09",
+      "area": "UX-规格",
+      "requirement": "A-9 出口与恢复：≥44×44 CSS px、键盘可达、S6 信息不空白、恢复不叠加、不改游戏状态",
+      "evidenceType": "CDP·真实指针 + 人工",
+      "source": "docs17 §7 A-9 / §4.2",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX10",
+      "area": "UX-规格",
+      "requirement": "A-10 不反复弹 / 一次会话记忆：≥3 次 resize、S7↔S8、切后台、接电话，转向提示总计 ≤1 次；刷新视为新会话",
+      "evidenceType": "CDP·真实视口 + 浏览器生命周期 + 真机",
+      "source": "docs17 §7 A-10 / §4.3",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX11",
+      "area": "UX-规格",
+      "requirement": "A-11 可访问性：aria-live 关键态各一次 / S7-S8 不播、焦点圈不裁、实测 rect ≥44×44、正文 ≥12 CSS px、对比度 ≥4.5:1、两种减少动效开关、不只靠颜色/动画/声音",
+      "evidenceType": "CDP·真实视口 + 真实键盘 + 人工 + 真机",
+      "source": "docs17 §7 A-11 / §5",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX12",
+      "area": "UX-规格",
+      "requirement": "A-12 降级三分支文案逐字断言（① API 缺失 ② 请求被拒 ③ 无法区分含超时），不得出现旧主提示「请检查系统旋转锁定设置」等",
+      "evidenceType": "CDP·能力模拟 + 单测（文本断言）",
+      "source": "docs17 §7 A-12 / §6.2",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    },
+    {
+      "id": "UL-UX13",
+      "area": "UX-规格",
+      "requirement": "A-13 旋转方向习惯与浏览器能力实机复核：iPhone Safari + ≥2 种国产内置浏览器，用户物理转动手机（非 ADB 强制旋转）",
+      "evidenceType": "真机 ADB + 人工（明确为未验证假设）",
+      "source": "docs17 §7 A-13 / 附录 A R1",
+      "status": "BLOCKED",
+      "observed": null,
+      "expected": null,
+      "notes": "docs17 §7 明确本条**必须真机**（A-3 真机 input tap + uiautomator dump；A-4 中文软键盘；A-6 刘海/挖孔/手势条；A-13 用户物理转动手机，不能用 ADB 强制旋转替代）。指南 §13.1：模拟视口 / CDP 截图 / 单测不得单独判通过。本会话无 iOS 真机、Android 设备休眠且阶段一不实跑 → BLOCKED。CDP 辅助观测只记录在 uxSupplement.cdp，不写成 PASS。",
+      "at": "2026-11-08T12:00:40.150Z"
+    },
+    {
+      "id": "UL-UX14",
+      "area": "UX-规格",
+      "requirement": "A-14 指南 4.2 依赖剥离：运行时禁用 lock + requestFullscreen 后自转仍完整可用（静态评审 + 运行时验证）",
+      "evidenceType": "CDP·能力模拟 + 真实指针 + 静态评审",
+      "source": "docs17 §7 A-14 / §8.1",
+      "status": "NOT_RUN",
+      "observed": null,
+      "expected": null,
+      "notes": "阶段一仅准备：未实跑完整流程，本项未执行",
+      "at": null
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "UL-CAP-01",
+      "status": "PASS",
+      "observed": {
+        "browser": "Chrome/156.0.8078.80",
+        "protocol": "1.3"
+      },
+      "expected": "CDP 连通",
+      "notes": "/json/version + target WebSocket",
+      "at": "2026-11-08T12:00:37.288Z"
+    },
+    {
+      "id": "UL-CAP-02",
+      "status": "PASS",
+      "observed": [
+        {
+          "requested": "390x844",
+          "w": 390,
+          "h": 844,
+          "requestedOrientation": {
+            "type": "portraitPrimary",
+            "angle": 0
+          },
+          "observed": {
+            "innerWidth": 390,
+            "innerHeight": 844,
+            "dpr": 2,
+            "portrait": true,
+            "landscape": false,
+            "orientationType": "portrait-primary",
+            "orientationAngle": 0,
+            "docW": 390,
+            "docH": 844
+          }
+        },
+        {
+          "requested": "375x667",
+          "w": 375,
+          "h": 667,
+          "requestedOrientation": {
+            "type": "portraitPrimary",
+            "angle": 0
+          },
+          "observed": {
+            "innerWidth": 375,
+            "innerHeight": 667,
+            "dpr": 2,
+            "portrait": true,
+            "landscape": false,
+            "orientationType": "portrait-primary",
+            "orientationAngle": 0,
+            "docW": 375,
+            "docH": 667
+          }
+        }
+      ],
+      "expected": "innerWidth/Height 精确、dpr=2、portrait=true",
+      "notes": "setDeviceMetricsOverride",
+      "at": "2026-11-08T12:00:38.535Z"
+    },
+    {
+      "id": "UL-CAP-03",
+      "status": "PASS",
+      "observed": [
+        {
+          "requested": "667x375",
+          "w": 667,
+          "h": 375,
+          "requestedOrientation": {
+            "type": "landscapePrimary",
+            "angle": 90
+          },
+          "observed": {
+            "innerWidth": 667,
+            "innerHeight": 375,
+            "dpr": 2,
+            "portrait": false,
+            "landscape": true,
+            "orientationType": "landscape-primary",
+            "orientationAngle": 90,
+            "docW": 667,
+            "docH": 375
+          }
+        },
+        {
+          "requested": "844x390",
+          "w": 844,
+          "h": 390,
+          "requestedOrientation": {
+            "type": "landscapePrimary",
+            "angle": 90
+          },
+          "observed": {
+            "innerWidth": 844,
+            "innerHeight": 390,
+            "dpr": 2,
+            "portrait": false,
+            "landscape": true,
+            "orientationType": "landscape-primary",
+            "orientationAngle": 90,
+            "docW": 844,
+            "docH": 390
+          }
+        },
+        {
+          "requested": "932x430",
+          "w": 932,
+          "h": 430,
+          "requestedOrientation": {
+            "type": "landscapePrimary",
+            "angle": 90
+          },
+          "observed": {
+            "innerWidth": 932,
+            "innerHeight": 430,
+            "dpr": 2,
+            "portrait": false,
+            "landscape": true,
+            "orientationType": "landscape-primary",
+            "orientationAngle": 90,
+            "docW": 932,
+            "docH": 430
+          }
+        }
+      ],
+      "expected": "三档横屏精确且 landscape=true",
+      "notes": "setDeviceMetricsOverride",
+      "at": "2026-11-08T12:00:38.535Z"
+    },
+    {
+      "id": "UL-CAP-04",
+      "status": "PASS",
+      "observed": {
+        "requested": "390x844@landscape-report",
+        "w": 390,
+        "h": 844,
+        "requestedOrientation": {
+          "type": "landscapePrimary",
+          "angle": 90
+        },
+        "observed": {
+          "innerWidth": 390,
+          "innerHeight": 844,
+          "dpr": 2,
+          "portrait": true,
+          "landscape": false,
+          "orientationType": "landscape-primary",
+          "orientationAngle": 90,
+          "docW": 390,
+          "docH": 844
+        }
+      },
+      "expected": "可下发矛盾方向并如实记录 screen.orientation 与 matchMedia 原始值",
+      "notes": "CDP 接受该组合；原始值不做推断",
+      "at": "2026-11-08T12:00:38.535Z"
+    },
+    {
+      "id": "UL-CAP-05",
+      "status": "PASS",
+      "observed": {
+        "lockType": "undefined",
+        "fullscreenType": "undefined",
+        "probe": true,
+        "injectErrors": [],
+        "orientationType": "portrait-primary"
+      },
+      "expected": "页面脚本前 lock / requestFullscreen 均为 undefined、探针存在、注入无异常",
+      "notes": "addScriptToEvaluateOnNewDocument",
+      "at": "2026-11-08T12:00:38.743Z"
+    },
+    {
+      "id": "UL-CAP-06",
+      "status": "PASS",
+      "observed": {
+        "before": {
+          "type": "portrait-primary",
+          "angle": 0
+        },
+        "after": {
+          "type": "landscape-primary",
+          "angle": 90
+        },
+        "lockReturn": "undefined",
+        "probe": {
+          "locks": [
+            "landscape"
+          ],
+          "fullscreens": 0,
+          "orientationchanges": 1,
+          "resizes": 1,
+          "errors": [],
+          "injectErrors": [],
+          "mock": {
+            "lock": "resolve",
+            "fullscreen": "resolve",
+            "orientationApi": "present",
+            "applyOrientation": true,
+            "fireOrientationChange": true,
+            "initialType": "portrait-primary",
+            "initialAngle": 0
+          },
+          "injectedAt": 1794139238750
+        }
+      },
+      "expected": "lock resolve + orientation 改写 + orientationchange 派发 + 探针计数",
+      "notes": "能力自检",
+      "at": "2026-11-08T12:00:38.952Z"
+    },
+    {
+      "id": "UL-CAP-07",
+      "status": "PASS",
+      "observed": {
+        "transform": "matrix(0, 1, -1, 0, 390, 0)",
+        "deg": 90,
+        "layoutW": 844,
+        "layoutH": 390,
+        "bboxW": 390,
+        "bboxH": 844,
+        "innerWidth": 390,
+        "innerHeight": 844
+      },
+      "expected": "≈±90° 矩阵；computed 布局宽高与 bbox 宽高互换",
+      "notes": "fixture",
+      "at": "2026-11-08T12:00:39.166Z"
+    },
+    {
+      "id": "UL-CAP-08",
+      "status": "PASS",
+      "observed": {
+        "rect": {
+          "cx": 340,
+          "cy": 80,
+          "w": 60,
+          "h": 120
+        },
+        "hit": {
+          "tag": "BUTTON",
+          "id": "qa",
+          "cls": "",
+          "closestId": "qa"
+        }
+      },
+      "expected": "elementFromPoint 命中被旋转元素",
+      "notes": "fixture",
+      "at": "2026-11-08T12:00:39.167Z"
+    },
+    {
+      "id": "UL-CAP-09",
+      "status": "PASS",
+      "observed": {
+        "mouseHits": [
+          {
+            "t": "pointerdown",
+            "pt": "mouse",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "pointerup",
+            "pt": "mouse",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "click",
+            "pt": "mouse",
+            "x": 340,
+            "y": 80
+          }
+        ],
+        "touchHits": [
+          {
+            "t": "pointerdown",
+            "pt": "touch",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "pointerup",
+            "pt": "touch",
+            "x": 340,
+            "y": 80
+          },
+          {
+            "t": "click",
+            "pt": "touch",
+            "x": 340,
+            "y": 80
+          }
+        ]
+      },
+      "expected": "mouse/touch 均产生完整 pointer 链并记录 client 坐标",
+      "notes": "Input 域",
+      "at": "2026-11-08T12:00:39.545Z"
+    },
+    {
+      "id": "UL-CAP-10",
+      "status": "PASS",
+      "observed": {
+        "shotBytes": 11932,
+        "listeners": [
+          "Runtime.exceptionThrown",
+          "Runtime.consoleAPICalled(error)"
+        ],
+        "unhandledrejectionProbe": true
+      },
+      "expected": "截图非空 + 错误监听可用",
+      "notes": "Page.captureScreenshot + Runtime",
+      "at": "2026-11-08T12:00:39.589Z"
+    },
+    {
+      "id": "UX-HELPERS",
+      "status": "PASS",
+      "observed": {
+        "scanCopy": {
+          "ok": true,
+          "forbiddenHits": [],
+          "textCount": 0
+        },
+        "readA11y": {
+          "ok": true,
+          "buttonCount": 1,
+          "minW": 60,
+          "minH": 120
+        },
+        "clickOrientationEntry": "full 模式执行（fixture 无方向入口）",
+        "clickRestoreEntry": "full 模式执行（fixture 无恢复入口）"
+      },
+      "expected": "UX 辅助表达式在真实浏览器中可求值（仅脚本能力，不是游戏结论）",
+      "notes": "capability-only 预跑 scanCopy / readA11y",
+      "at": "2026-11-08T12:00:39.591Z"
+    }
+  ],
+  "scenarios": [],
+  "scenarioMocks": [
+    {
+      "scope": "capability-absent",
+      "mock": {
+        "lock": "absent",
+        "fullscreen": "absent",
+        "orientationApi": "present",
+        "initialType": "portrait-primary",
+        "initialAngle": 0
+      }
+    },
+    {
+      "scope": "capability-resolve",
+      "mock": {
+        "lock": "resolve",
+        "fullscreen": "resolve",
+        "orientationApi": "present",
+        "applyOrientation": true,
+        "fireOrientationChange": true,
+        "initialType": "portrait-primary",
+        "initialAngle": 0
+      }
+    }
+  ],
+  "pointerEvidence": {
+    "capability": {
+      "qaRect": {
+        "cx": 340,
+        "cy": 80,
+        "w": 60,
+        "h": 120
+      },
+      "hit": {
+        "tag": "BUTTON",
+        "id": "qa",
+        "cls": "",
+        "closestId": "qa"
+      },
+      "mouseHits": [
+        {
+          "t": "pointerdown",
+          "pt": "mouse",
+          "x": 340,
+          "y": 80
+        },
+        {
+          "t": "pointerup",
+          "pt": "mouse",
+          "x": 340,
+          "y": 80
+        },
+        {
+          "t": "click",
+          "pt": "mouse",
+          "x": 340,
+          "y": 80
+        }
+      ],
+      "touchHits": [
+        {
+          "t": "pointerdown",
+          "pt": "touch",
+          "x": 340,
+          "y": 80
+        },
+        {
+          "t": "pointerup",
+          "pt": "touch",
+          "x": 340,
+          "y": 80
+        },
+        {
+          "t": "click",
+          "pt": "touch",
+          "x": 340,
+          "y": 80
+        }
+      ]
+    }
+  },
+  "viewports": [
+    {
+      "key": "390x844",
+      "requested": {
+        "key": "390x844",
+        "w": 390,
+        "h": 844,
+        "orientation": {
+          "type": "portraitPrimary",
+          "angle": 0
+        }
+      },
+      "observed": {
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 2,
+        "portrait": true,
+        "landscape": false,
+        "orientationType": "portrait-primary",
+        "orientationAngle": 0,
+        "docW": 390,
+        "docH": 844
+      },
+      "stage": "capability"
+    },
+    {
+      "key": "375x667",
+      "requested": {
+        "key": "375x667",
+        "w": 375,
+        "h": 667,
+        "orientation": {
+          "type": "portraitPrimary",
+          "angle": 0
+        }
+      },
+      "observed": {
+        "innerWidth": 375,
+        "innerHeight": 667,
+        "dpr": 2,
+        "portrait": true,
+        "landscape": false,
+        "orientationType": "portrait-primary",
+        "orientationAngle": 0,
+        "docW": 375,
+        "docH": 667
+      },
+      "stage": "capability"
+    },
+    {
+      "key": "667x375",
+      "requested": {
+        "key": "667x375",
+        "w": 667,
+        "h": 375,
+        "orientation": {
+          "type": "landscapePrimary",
+          "angle": 90
+        }
+      },
+      "observed": {
+        "innerWidth": 667,
+        "innerHeight": 375,
+        "dpr": 2,
+        "portrait": false,
+        "landscape": true,
+        "orientationType": "landscape-primary",
+        "orientationAngle": 90,
+        "docW": 667,
+        "docH": 375
+      },
+      "stage": "capability"
+    },
+    {
+      "key": "844x390",
+      "requested": {
+        "key": "844x390",
+        "w": 844,
+        "h": 390,
+        "orientation": {
+          "type": "landscapePrimary",
+          "angle": 90
+        }
+      },
+      "observed": {
+        "innerWidth": 844,
+        "innerHeight": 390,
+        "dpr": 2,
+        "portrait": false,
+        "landscape": true,
+        "orientationType": "landscape-primary",
+        "orientationAngle": 90,
+        "docW": 844,
+        "docH": 390
+      },
+      "stage": "capability"
+    },
+    {
+      "key": "932x430",
+      "requested": {
+        "key": "932x430",
+        "w": 932,
+        "h": 430,
+        "orientation": {
+          "type": "landscapePrimary",
+          "angle": 90
+        }
+      },
+      "observed": {
+        "innerWidth": 932,
+        "innerHeight": 430,
+        "dpr": 2,
+        "portrait": false,
+        "landscape": true,
+        "orientationType": "landscape-primary",
+        "orientationAngle": 90,
+        "docW": 932,
+        "docH": 430
+      },
+      "stage": "capability"
+    },
+    {
+      "key": "390x844@landscape-report",
+      "requested": {
+        "key": "390x844@landscape-report",
+        "w": 390,
+        "h": 844,
+        "orientation": {
+          "type": "landscapePrimary",
+          "angle": 90
+        }
+      },
+      "observed": {
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 2,
+        "portrait": true,
+        "landscape": false,
+        "orientationType": "landscape-primary",
+        "orientationAngle": 90,
+        "docW": 390,
+        "docH": 844
+      },
+      "stage": "capability"
+    }
+  ],
+  "consoleErrors": [],
+  "screenshots": [],
+  "uxSupplement": {
+    "scenarios": {},
+    "cdp": {
+      "capabilitySanity": {
+        "scanCopy": {
+          "ok": true,
+          "forbiddenHits": [],
+          "textCount": 0
+        },
+        "readA11y": {
+          "ok": true,
+          "buttonCount": 1,
+          "minW": 60,
+          "minH": 120
+        },
+        "clickOrientationEntry": "full 模式执行（fixture 无方向入口）",
+        "clickRestoreEntry": "full 模式执行（fixture 无恢复入口）"
+      }
+    },
+    "realDeviceNotes": []
+  },
+  "cleanup": {
+    "chromeKilled": true,
+    "servicesStopped": false,
+    "targetsClosed": 1,
+    "profileRemoved": true,
+    "notes": []
+  },
+  "summary": {
+    "byStatus": {
+      "PASS": 13,
+      "FAIL": 0,
+      "NOT_RUN": 58,
+      "BLOCKED": 10
+    },
+    "byArea": {
+      "capability": {
+        "PASS": 10,
+        "FAIL": 0,
+        "NOT_RUN": 0,
+        "BLOCKED": 0
+      },
+      "environment": {
+        "PASS": 3,
+        "FAIL": 0,
+        "NOT_RUN": 0,
+        "BLOCKED": 0
+      },
+      "A-能力分支": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 9,
+        "BLOCKED": 0
+      },
+      "B-指针命中": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 9,
+        "BLOCKED": 0
+      },
+      "C-生命周期": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 7,
+        "BLOCKED": 0
+      },
+      "D-安全区": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 4,
+        "BLOCKED": 0
+      },
+      "E-视口矩阵": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 7,
+        "BLOCKED": 0
+      },
+      "F-出口": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 5,
+        "BLOCKED": 0
+      },
+      "G-回归": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 7,
+        "BLOCKED": 0
+      },
+      "R-真机": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 0,
+        "BLOCKED": 6
+      },
+      "UX-规格": {
+        "PASS": 0,
+        "FAIL": 0,
+        "NOT_RUN": 10,
+        "BLOCKED": 4
+      }
+    },
+    "total": 81,
+    "gate": "NOT_CONCLUDED",
+    "gateIsAdvisory": true,
+    "gateNote": "阶段一仅准备，未实跑完整流程，未出具质量门判定。",
+    "gateReasons": [
+      "capability-only 未实跑完整流程，未出具判定"
+    ],
+    "realDeviceBlocked": 6,
+    "failIds": [],
+    "blockedIds": [
+      "UL-R01",
+      "UL-R02",
+      "UL-R03",
+      "UL-R04",
+      "UL-R05",
+      "UL-R06",
+      "UL-UX03",
+      "UL-UX04",
+      "UL-UX06",
+      "UL-UX13"
+    ]
+  }
+}

@@ -5,3 +5,13 @@ node_modules/
 
 # 说明：apps/web/dist、apps/server/dist/public、release/ 故意保留在基线里，
 # 用来核对「源码 ↔ 构建产物」是否同步（重构指南阶段 A）。
+
+# 本机备份与大体量过程产物：不入库（发布时按需从源码重建）
+.workbuddy/backups/
+probe/phase-d-*shots/
+probe/phase-d-closure-shots/
+design/desktop/screens/
+
+# 说明：docs/shots 下的证据截图按「有价值」逐张入库（git add 显式加入），
+# 不整目录提交，避免仓库被几十 MB 的过程截图撑大。
+

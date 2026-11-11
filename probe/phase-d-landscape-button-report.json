@@ -1,0 +1,94 @@
+{
+  "viewport": "390x844 @2 (mobile portrait)",
+  "pass": [
+    "竖屏卡片自动展开且主按钮为「进入横屏」",
+    "浏览器拒绝方向锁定 → 已降级为手动旋转提示（非静默失败）",
+    "降级时卡片保留，用户仍能看到说明与操作入口",
+    "667x375: 横屏下竖屏卡片已隐藏",
+    "667x375: 右侧行动区正常展开",
+    "844x390: 横屏下竖屏卡片已隐藏",
+    "844x390: 右侧行动区正常展开",
+    "932x430: 横屏下竖屏卡片已隐藏",
+    "932x430: 右侧行动区正常展开"
+  ],
+  "fail": [],
+  "observed": {
+    "before": {
+      "gateHidden": false,
+      "gateDisplay": "flex",
+      "btnText": "进入横屏",
+      "hintHidden": true,
+      "orientation": "present",
+      "lockType": "function",
+      "innerWidth": 390,
+      "innerHeight": 844
+    },
+    "clickAt": {
+      "x": 195,
+      "y": 469.375
+    },
+    "hitTarget": {
+      "tag": "BUTTON",
+      "id": "portrait-landscape",
+      "cls": "btn primary"
+    },
+    "after": {
+      "hintHidden": false,
+      "hintText": "浏览器没有允许切换方向，请手动把手机横过来，或检查系统的旋转锁定设置。",
+      "gateHidden": false,
+      "toastText": "浏览器没有允许切换方向，请手动把手机横过来，或检查系统的旋转锁定设置。",
+      "fullscreenElement": "present",
+      "orientationType": "portrait-primary",
+      "probe": {
+        "clicks": 1,
+        "locks": [
+          "landscape"
+        ],
+        "fullscreens": 1,
+        "errors": []
+      }
+    },
+    "probe": {
+      "clicks": 1,
+      "locks": [
+        "landscape"
+      ],
+      "fullscreens": 1,
+      "errors": []
+    }
+  },
+  "chrome": "Chrome/156.0.8078.80",
+  "screenshot": "docs/shots/phase-d-landscape-button-check.png",
+  "landscapeViewports": [
+    {
+      "viewport": "667x375",
+      "gateDisplay": "none",
+      "gateHidden": true,
+      "railDisplay": "flex",
+      "stageWidth": 503,
+      "innerWidth": 667,
+      "innerHeight": 375,
+      "screenshot": "docs/shots/phase-d-landscape-vp-667x375.png"
+    },
+    {
+      "viewport": "844x390",
+      "gateDisplay": "none",
+      "gateHidden": true,
+      "railDisplay": "flex",
+      "stageWidth": 658,
+      "innerWidth": 844,
+      "innerHeight": 390,
+      "screenshot": "docs/shots/phase-d-landscape-vp-844x390.png"
+    },
+    {
+      "viewport": "932x430",
+      "gateDisplay": "none",
+      "gateHidden": true,
+      "railDisplay": "flex",
+      "stageWidth": 736,
+      "innerWidth": 932,
+      "innerHeight": 430,
+      "screenshot": "docs/shots/phase-d-landscape-vp-932x430.png"
+    }
+  ]
+}
