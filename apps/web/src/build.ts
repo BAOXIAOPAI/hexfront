@@ -108,4 +108,24 @@ export function overlayFor(
   return { vertices: c.vertices, edges: c.edges, picked: null };
 }
 
+/**
+ * 筑路发展卡：选第二条路时，候选必须基于「假设第一条已合法落成」的状态。
+ * 与引擎 playRoadBuilding 一致 —— 它按顺序逐条放置，第二条路是在
+ * 第一条已经写进 next.roads 之后再用 roadConnected 校验的。
+ * 这里只做「界面上该亮哪里」的提示，合法性仍由服务端裁决（指南 6 / 8.2）。
+ */
+export function roadBuildingCandidates(
+  view: PlayerView,
+  geo: Geometry,
+  assumedEdges: readonly string[],
+): string[] {
+  const me = view.viewer;
+  const roads: Record<string, number> = { ...view.roads };
+  for (const ek of assumedEdges) {
+    if (view.roads[ek] === undefined) roads[ek] = me;
+  }
+  const assumed: PlayerView = { ...view, roads };
+  return candidatesFor(assumed, geo, 'road').edges;
+}
+
 export { EMPTY as NO_CANDIDATES };
