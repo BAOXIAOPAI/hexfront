@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9v14L16 30 3 23V9Z' fill='%23E9A93B'/%3E%3C/svg%3E">
+  <title>晴湾纸雕 · 交易重做与五个状态</title>
+  <style>
+    :root {
+      --paper: #FFF8E8;
+      --paper-deep: #F3E5C8;
+      --ink: #23372F;
+      --ink-soft: #4E6257;
+      --muted: #5B6C60;
+      --rule: #D8C6A4;
+      --rule-soft: rgba(78, 98, 87, .18);
+      --coral: #D9654C;
+      --coral-deep: #B84E37;
+      --sun: #E9A93B;
+      --leaf: #4C8B67;
+      --sea: #1F7A7E;
+      --font-display: "Songti SC", "STSong", "Noto Serif SC", serif;
+      --font-body: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+      --font-latin: "Avenir Next", "Futura", "Georgia", serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(1000px 480px at 4% 0%, rgba(233, 169, 59, .13), transparent 55%),
+        radial-gradient(900px 500px at 100% 10%, rgba(76, 139, 103, .1), transparent 55%),
+        linear-gradient(180deg, #FBF2DD, #F2E5C9 60%, #EADABC);
+      min-height: 100vh;
+    }
+    ::selection { background: rgba(233, 169, 59, .28); }
+    .wrap { max-width: 1330px; margin: 0 auto; padding: 38px 38px 64px; }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .kicker {
+      display: flex; align-items: center; gap: 9px;
+      font-family: var(--font-latin); font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .kicker::before { content: ""; width: 24px; height: 1px; background: var(--ink); opacity: .4; }
+    .chosen {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 6px 10px;
+      background: var(--ink); color: var(--paper);
+      font-size: 10.5px; letter-spacing: .06em;
+      border-radius: 99px;
+    }
+    .chosen i { width: 6px; height: 6px; border-radius: 50%; background: var(--sun); }
+    h1 {
+      margin: 16px 0 10px;
+      font-family: var(--font-display);
+      font-size: clamp(34px, 4.1vw, 50px);
+      line-height: 1.12;
+      letter-spacing: .01em;
+    }
+    .lede { max-width: 880px; margin: 0; font-size: 13.5px; line-height: 1.8; color: var(--ink-soft); }
+    .state-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 22px 0 28px; }
+    .state-chips span {
+      padding: 6px 9px; border: 1px solid var(--rule);
+      background: rgba(255, 250, 240, .48);
+      font-size: 10.5px; color: var(--ink-soft);
+    }
+    .state-chips b { color: var(--ink); font-weight: 600; }
+    .state-chips i { width: 5px; height: 5px; border-radius: 50%; background: var(--coral); display: inline-block; margin-right: 5px; vertical-align: 1px; }
+
+    .states { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start; }
+    .state-card {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 3px 0 rgba(42, 64, 54, .12), 0 16px 34px rgba(78, 57, 32, .08);
+      position: relative;
+      overflow: hidden;
+    }
+    .state-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--stripe); }
+    .state-card.s1 { --stripe: linear-gradient(90deg, #E9A93B 0 42%, #4C8B67 42% 100%); }
+    .state-card.s2 { --stripe: linear-gradient(90deg, #D9654C 0 55%, #E9A93B 55% 100%); }
+    .state-card.s3 { --stripe: linear-gradient(90deg, #4C8B67 0 45%, #E9A93B 45% 100%); }
+    .state-card.s4 { --stripe: linear-gradient(90deg, #3B6FA0 0 38%, #D9654C 38% 100%); }
+    .state-card.s5 { --stripe: linear-gradient(90deg, #2A4036 0 24%, #D9654C 24% 58%, #E9A93B 58% 100%); grid-column: 1 / -1; }
+    .state-head { padding: 22px 22px 14px; border-bottom: 1px solid var(--rule-soft); }
+    .state-label {
+      font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .state-head h2 { margin: 7px 0 5px; font-family: var(--font-display); font-size: 25px; line-height: 1.2; }
+    .state-head p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink-soft); }
+    .shot { display: block; margin: 16px 18px 0; border: 1px solid rgba(42, 64, 54, .28); overflow: hidden; background: #143; }
+    .shot img { display: block; width: 100%; height: auto; }
+    .shot:hover img { filter: brightness(1.015); }
+    .state-body { padding: 14px 22px 20px; }
+    .path { margin: 0 0 12px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; }
+    .path li { font-size: 9.5px; line-height: 1; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+    .path li::after { content: "→"; color: var(--rule); font-family: var(--font-latin); }
+    .path li:last-child::after { content: ""; }
+    .path li b { font-weight: 600; color: var(--ink-soft); }
+    .links { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .links a { color: var(--ink); font-size: 11.5px; text-decoration: none; border-bottom: 1px solid var(--ink); padding-bottom: 1px; }
+    .links a.secondary { color: var(--muted); border-bottom-color: var(--rule); }
+    .links a:hover { color: var(--coral-deep); border-color: var(--coral-deep); }
+
+    .two-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px 18px 0; }
+    .two-shots .shot { margin: 0; }
+    .two-shots figcaption { margin-top: 6px; font-size: 9.5px; color: var(--muted); letter-spacing: .03em; }
+    .rule-strip {
+      margin-top: 14px; padding: 10px 12px;
+      border: 1px dashed rgba(42, 64, 54, .28);
+      background: rgba(233, 169, 59, .08);
+      font-size: 10.5px; line-height: 1.65; color: var(--ink-soft);
+    }
+    .rule-strip b { color: var(--coral-deep); }
+    .note { font-size: 10.5px; line-height: 1.65; color: var(--muted); margin: 10px 0 0; }
+
+    .changes { margin-top: 32px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .change {
+      background: rgba(255, 250, 240, .55);
+      border: 1px solid var(--rule);
+      padding: 16px 16px 15px;
+    }
+    .change h3 { margin: 0 0 6px; font-family: var(--font-display); font-size: 19px; }
+    .change p { margin: 0; font-size: 11px; line-height: 1.7; color: var(--ink-soft); }
+    .change b { color: var(--coral-deep); font-weight: 600; }
+    .handoff {
+      margin-top: 24px;
+      display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+      padding: 18px 20px;
+      border: 1px solid var(--rule);
+      background: rgba(255, 250, 240, .5);
+    }
+    .handoff h3 { margin: 0 0 5px; font-family: var(--font-display); font-size: 20px; }
+    .handoff p { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--ink-soft); max-width: 760px; }
+    .handoff .links a { font-size: 12px; }
+
+    .testlog { margin-top: 16px; border: 1px solid var(--rule); background: rgba(255, 250, 240, .44); padding: 18px 20px; }
+    .testlog h3 { margin: 0 0 10px; font-family: var(--font-display); font-size: 21px; }
+    .test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; }
+    .test-grid p { margin: 0; font-size: 10.5px; line-height: 1.65; color: var(--ink-soft); }
+    .test-grid b { color: var(--ink); }
+    .test-grid .muted { color: var(--muted); }
+
+    footer {
+      margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--rule-soft);
+      display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+      font-size: 10px; color: var(--muted); line-height: 1.65;
+    }
+    footer b { color: var(--ink-soft); }
+    @media (max-width: 1050px) {
+      .wrap { padding: 26px 18px 46px; }
+      .states, .two-shots, .changes, .test-grid { grid-template-columns: 1fr; }
+      .state-card.s5 { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topline">
+      <div class="kicker">Direction B · Round 2 · 2026-11-10</div>
+      <div class="chosen"><i></i>已选方向 · 晴湾纸雕</div>
+    </div>
+    <h1>晴湾纸雕 · 交易重做与五个状态</h1>
+    <p class="lede">朋友先在外部语音谈好，网页只负责执行。交易从密集的双栏表单改成“先选收到、再选给出”的两步图形选择；报价入口、弃牌表达、道路对比和轻量动效一起重做。所有状态仍是同一套布局、同一局信息。</p>
+    <div class="state-chips">
+      <span><b>1440×900</b> 主设计视口</span>
+      <span><i></i><b>1280×720</b> 最低支持视口，无页面滚动</span>
+      <span><i></i><b>1366×768</b> 已检查</span>
+      <span><i></i><b>第 14 回合</b> · 甲行动</span>
+      <span><i></i><b>9 张手牌</b> · 2 条提议</span>
+    </div>
+
+    <main class="states">
+      <article class="state-card s1">
+        <header class="state-head">
+          <div class="state-label">State 01 · Normal</div>
+          <h2>普通对局</h2>
+          <p>任务卡只留即时任务；两条提议改成“你给出 / 你收到”视角，接受用深绿，掷骰保留金色主操作。</p>
+        </header>
+        <a class="shot" href="papercut.html" target="_blank" rel="noopener" aria-label="打开普通对局">
+          <img src="screens/papercut-1440.png" alt="晴湾纸雕普通对局，1440×900">
+        </a>
+        <div class="state-body">
+          <ul class="path">
+            <li><b>悬停地块</b>看点数</li>
+            <li><b>点玩家</b>看公开信息</li>
+            <li><b>掷骰</b>进入 7 点弃牌</li>
+          </ul>
+          <div class="links">
+            <a href="papercut.html" target="_blank" rel="noopener">打开普通对局</a>
+            <a class="secondary" href="screens/papercut-1280.png" target="_blank" rel="noopener">1280×720 截图</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="state-card s2">
+        <header class="state-head">
+          <div class="state-label">State 02 · Trade · 1/2</div>
+          <h2>交易：我想收到</h2>
+          <p>先只选收到的一侧。五种资源用图标、名称、醒目整数、滑条和加减；数字可直接输入，滑条范围会随输入扩展。</p>
+        </header>
+        <a class="shot" href="papercut.html?state=trade" target="_blank" rel="noopener" aria-label="打开交易第一步">
+          <img src="screens/papercut-trade-1440.png" alt="交易第一步：我想收到，1440×900">
+        </a>
+        <div class="state-body">
+          <ul class="path">
+            <li><b>选对象</b>乙 / 丙 / 丁</li>
+            <li><b>选收到</b>或全部留零</li>
+            <li><b>下一步</b>我愿给出</li>
+          </ul>
+          <div class="links">
+            <a href="papercut.html?state=trade" target="_blank" rel="noopener">打开第一步</a>
+            <a class="secondary" href="screens/papercut-trade-1280.png" target="_blank" rel="noopener">1280×720 截图</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="state-card s3">
+        <header class="state-head">
+          <div class="state-label">State 03 · Trade · 2/2</div>
+          <h2>交易：我愿给出</h2>
+          <p>第二步保留第一步摘要和“修改”，给出侧显示持有量；底部直接展示完整条件并发送，不再叠第三层确认。</p>
+        </header>
+        <a class="shot" href="papercut.html?state=trade&step=give" target="_blank" rel="noopener" aria-label="打开交易第二步">
+          <img src="screens/papercut-trade-step2-1440.png" alt="交易第二步：我愿给出，1440×900">
+        </a>
+        <div class="state-body">
+          <ul class="path">
+            <li><b>看持有</b>按自己资源封顶</li>
+            <li><b>修改</b>返回收到侧</li>
+            <li><b>发送给</b>丙</li>
+          </ul>
+          <div class="links">
+            <a href="papercut.html?state=trade&step=give" target="_blank" rel="noopener">打开第二步</a>
+            <a class="secondary" href="screens/papercut-trade-step2-1280.png" target="_blank" rel="noopener">1280×720 截图</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="state-card s4">
+        <header class="state-head">
+          <div class="state-label">State 04 · Offers</div>
+          <h2>收到的提议</h2>
+          <p>编辑交易时也能随时看到报价数量；新报价只轻提示，不抢焦点、不丢草稿。报价从你的视角显示你给出 / 你收到。</p>
+        </header>
+        <a class="shot" href="papercut.html?state=trade&tab=offers" target="_blank" rel="noopener" aria-label="打开收到的提议">
+          <img src="screens/papercut-trade-offers-1440.png" alt="收到的提议列表，1440×900">
+        </a>
+        <div class="state-body">
+          <ul class="path">
+            <li><b>切换</b>发起交易 ↔ 收到的提议</li>
+            <li><b>倒计时</b>10 秒有效</li>
+            <li><b>接受</b>按 offerId</li>
+          </ul>
+          <div class="links">
+            <a href="papercut.html?state=trade&tab=offers" target="_blank" rel="noopener">打开收到的提议</a>
+            <a class="secondary" href="screens/papercut-trade-offers-1280.png" target="_blank" rel="noopener">1280×720 截图</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="state-card s5">
+        <header class="state-head">
+          <div class="state-label">State 05 · Seven</div>
+          <h2>弃牌与强盗</h2>
+          <p>弃牌手牌明确显示“持有 N / 已选 N”，已选徽章可直接取消；掷出 7 后报价清空。强盗阶段用金色地图钉选点，再从相邻玩家抽 1 张背面牌。</p>
+        </header>
+        <div class="two-shots">
+          <figure style="margin:0">
+            <a class="shot" href="papercut.html?state=robber" target="_blank" rel="noopener" aria-label="打开弃牌与强盗流程">
+              <img src="screens/papercut-discard-1440.png" alt="弃牌阶段，持有与已选清晰显示，1440×900">
+            </a>
+            <figcaption>弃牌 · 选 3/5；每张牌显示“持有”数量，顶部“已选 1 −”取消一张</figcaption>
+          </figure>
+          <figure style="margin:0">
+            <a class="shot" href="papercut.html?state=robber" target="_blank" rel="noopener" aria-label="打开强盗选点">
+              <img src="screens/papercut-robber-1440.png" alt="强盗阶段，合法地块带金色地图钉，1440×900">
+            </a>
+            <figcaption>强盗 · 金色地图钉标出合法地块；选点后抽牌为背面卡飞行，不泄露资源种类</figcaption>
+          </figure>
+        </div>
+        <div class="state-body">
+          <div class="rule-strip"><b>规则对应：</b>弃完但强盗未结算时，建造 / 交易 / 兑换可继续；发展卡与结束回合保持禁用，直到强盗结算。掷出 7 时所有报价作废。</div>
+          <ul class="path">
+            <li><b>掷出 7</b>报价清空</li>
+            <li><b>选 5 张</b>确认弃牌</li>
+            <li><b>等丙</b>弃 5 张</li>
+            <li><b>选地块</b>放强盗</li>
+            <li><b>选对象</b>抽 1 张</li>
+            <li><b>恢复行动</b></li>
+          </ul>
+          <div class="links">
+            <a href="papercut.html?state=robber" target="_blank" rel="noopener">打开弃牌与强盗</a>
+            <a class="secondary" href="screens/papercut-discard-1280.png" target="_blank" rel="noopener">1280 弃牌截图</a>
+            <a class="secondary" href="screens/papercut-robber-1280.png" target="_blank" rel="noopener">1280 强盗截图</a>
+          </div>
+          <p class="note">抽牌动效只表现结果：先更新手牌与日志，再播放背面卡；减少动态模式下直接显示结果。原型中丙的弃牌与抽牌内容仍为本地模拟。</p>
+        </div>
+      </article>
+    </main>
+
+    <section class="changes">
+      <article class="change"><h3>交易不再像表单</h3><p>一次只编辑<b>我想收到</b>或<b>我愿给出</b>一侧；五类资源位置固定，滑条、加减和直接输入三路同步。顶部对象与第二步摘要常驻，发送前完整条件可见。</p></article>
+      <article class="change"><h3>报价不再被编辑遮住</h3><p>“发起交易 / 收到的提议 (N)”切换常驻；新报价只更新数量与轻提示，不抢焦点、不丢草稿。过期报价从列表移除，不能误接受。</p></article>
+      <article class="change"><h3>可读性与主次</h3><p>主要操作 14–15px；接受改深绿、掷骰与发送保留金色；弃牌显示持有/已选；黄色玩家改为更深的赭黄，道路加粗描边，和麦田分开。</p></article>
+    </section>
+
+    <section class="handoff">
+      <div>
+        <h3>动效与降级</h3>
+        <p>骰子短翻滚 680ms；交易步骤切换 180ms；按钮/选牌/数量变化 100–180ms；购买发展卡从牌堆抽出；强盗抽牌为背面卡飞向手牌。全部为 CSS/Web Animations，无 3D 引擎；减少动态模式下动效关闭、结果立即更新。</p>
+      </div>
+      <div class="links">
+        <a href="handoff/REFINEMENT-ROUND2.md" target="_blank" rel="noopener">改动与测试记录</a>
+        <a href="handoff/DESIGN-SPEC.md" target="_blank" rel="noopener">设计规范</a>
+        <a href="handoff/ART-ASSETS.md" target="_blank" rel="noopener">资产清单</a>
+        <a class="secondary" href="compare.html">对照历史</a>
+      </div>
+    </section>
+
+    <section class="testlog">
+      <h3>本轮验证</h3>
+      <div class="test-grid">
+        <p><b>尺寸：</b>1440×900、1280×720、1366×768 无整页滚动；交易抽屉、弃牌、强盗均完整可见。</p>
+        <p><b>交易边界：</b>混合资源、仅赠予、仅索取、双方为零、给出超过持有、收到 50 张滑条扩展均正确。</p>
+        <p><b>草稿：</b>返回第一步、切换对象、关闭再开、编辑中收到新报价均保留；新报价不抢输入焦点。</p>
+        <p><b>报价：</b>倒计时到期移除、过期不可接受、接受按 offerId、发送后 3 秒冷却、10 秒后自动过期、撤回可用。</p>
+        <p><b>动效：</b>正常模式播放骰子/步骤/抽卡；减少动态模式跳过背面卡飞行动画，逻辑与按钮状态不受影响。</p>
+        <p><b>工程：</b>五类状态无新增 console error；只修改 `design/desktop/`，未改 `apps/`、`packages/`、正式协议或规则。</p>
+      </div>
+    </section>
+
+    <footer>
+      <div><b>模拟边界：</b>没有服务端；报价倒计时、发送成功、丙的弃牌与抽牌内容为本地演示；结束回合不真正切换到下一位。倒计时只在交易面板打开时推进。</div>
+      <div><b>仓库范围：</b>本轮只修改 `design/desktop/` 与其交付说明，未改正式游戏、协议或规则。</div>
+    </footer>
+  </div>
+</body>
+</html>

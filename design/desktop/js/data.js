@@ -1,0 +1,185 @@
+/**
+ * 设计原型专用数据 —— 只服务视觉评审，不接入正式游戏。
+ * 状态为同一局真实信息密度的中后盘：第 14 回合、甲 9 张手牌、
+ * 两条并存报价、四名玩家均有公开建筑与成就。
+ */
+window.GAME_STATE = {
+  room: '海岬 · 四人局',
+  round: 14,
+  current: 0,
+  hasRolled: false,
+  lastRoll: { d1: 4, d2: 4, total: 8, by: 1, sub: '木 +2 · 麦 +1' },
+  players: [
+    {
+      id: 'a',
+      name: '甲',
+      you: true,
+      colorKey: 'a',
+      score: 8,
+      handCount: 9,
+      devCount: 3,
+      badges: [],
+      port: '2:1 羊港',
+      buildings: '2 城 · 2 村',
+      knights: 1,
+      secretNote: '2 张发展分已在手',
+    },
+    {
+      id: 'b',
+      name: '乙',
+      you: false,
+      colorKey: 'b',
+      score: 7,
+      handCount: 6,
+      devCount: 2,
+      badges: ['最长路'],
+      port: '2:1 木港',
+      buildings: '1 城 · 2 村',
+      knights: 2,
+    },
+    {
+      id: 'c',
+      name: '丙',
+      you: false,
+      colorKey: 'c',
+      score: 5,
+      handCount: 9,
+      devCount: 1,
+      badges: [],
+      port: '3:1 通用港',
+      buildings: '1 城 · 2 村',
+      knights: 0,
+    },
+    {
+      id: 'd',
+      name: '丁',
+      you: false,
+      colorKey: 'd',
+      score: 6,
+      handCount: 7,
+      devCount: 0,
+      badges: ['最大军'],
+      port: '2:1 矿港',
+      buildings: '1 城 · 2 村',
+      knights: 3,
+    },
+  ],
+  hand: [
+    { key: 'wood', name: '木材', count: 2 },
+    { key: 'brick', name: '砖块', count: 1 },
+    { key: 'sheep', name: '羊毛', count: 3, port: '2:1' },
+    { key: 'wheat', name: '麦子', count: 2 },
+    { key: 'ore', name: '矿石', count: 1 },
+  ],
+  discardRisk: 5,
+  devCards: [
+    { key: 'knight', name: '骑士', count: 1, note: '移动强盗，并抽走一名玩家 1 张资源' },
+    { key: 'road', name: '筑路', count: 1, note: '免费放置 2 条道路' },
+    { key: 'monopoly', name: '垄断', count: 1, note: '指定一种资源，收取其他玩家全部该资源' },
+  ],
+  offers: [
+    {
+      id: 'of-1',
+      from: 2,
+      give: { key: 'sheep', count: 2 },
+      want: { key: 'ore', count: 1 },
+      seconds: 6,
+      total: 10,
+    },
+    {
+      id: 'of-2',
+      from: 3,
+      give: { key: 'wheat', count: 1 },
+      want: { key: 'wood', count: 2 },
+      seconds: 3,
+      total: 10,
+    },
+  ],
+  log: [
+    { icon: 'knight', text: '丁 打出骑士，强盗移到北岸 6 号田' },
+    { icon: 'dice', text: '乙 掷出 8 点，收下木 +2、麦 +1' },
+    { icon: 'trade', text: '丙 与 乙 成交：2 麦 ⇄ 1 矿' },
+    { icon: 'build', text: '甲 在东南海岸把村庄升级为城' },
+  ],
+  meta: {
+    deck: 14,
+    longestRoad: { player: 1, length: 8 },
+    largestArmy: { player: 3, count: 3 },
+  },
+  tiles: [
+    // row 0
+    { key: '-2,0', u: -2, row: 0, terrain: 'wood', number: 5 },
+    { key: '0,0', u: 0, row: 0, terrain: 'sheep', number: 2 },
+    { key: '2,0', u: 2, row: 0, terrain: 'wheat', number: 6 },
+    // row 1
+    { key: '-3,1', u: -3, row: 1, terrain: 'brick', number: 3 },
+    { key: '-1,1', u: -1, row: 1, terrain: 'ore', number: 10 },
+    { key: '1,1', u: 1, row: 1, terrain: 'sheep', number: 9 },
+    { key: '3,1', u: 3, row: 1, terrain: 'wood', number: 12 },
+    // row 2
+    { key: '-4,2', u: -4, row: 2, terrain: 'wheat', number: 8 },
+    { key: '-2,2', u: -2, row: 2, terrain: 'wood', number: 4 },
+    { key: '0,2', u: 0, row: 2, terrain: 'desert', number: null },
+    { key: '2,2', u: 2, row: 2, terrain: 'brick', number: 5 },
+    { key: '4,2', u: 4, row: 2, terrain: 'sheep', number: 11 },
+    // row 3
+    { key: '-3,3', u: -3, row: 3, terrain: 'ore', number: 9 },
+    { key: '-1,3', u: -1, row: 3, terrain: 'wheat', number: 10 },
+    { key: '1,3', u: 1, row: 3, terrain: 'sheep', number: 3 },
+    { key: '3,3', u: 3, row: 3, terrain: 'brick', number: 8 },
+    // row 4
+    { key: '-2,4', u: -2, row: 4, terrain: 'wood', number: 4 },
+    { key: '0,4', u: 0, row: 4, terrain: 'wheat', number: 11 },
+    { key: '2,4', u: 2, row: 4, terrain: 'ore', number: 6 },
+  ],
+  // 港口按方位角挑选最近的边界边；类型顺序为：通用、木、通用、砖、通用、矿、通用、麦、羊
+  portPlan: [
+    { angle: -160, kind: 'generic' },
+    { angle: -120, kind: 'specific', resource: 'wood' },
+    { angle: -80, kind: 'generic' },
+    { angle: -40, kind: 'specific', resource: 'brick' },
+    { angle: 0, kind: 'generic' },
+    { angle: 40, kind: 'specific', resource: 'ore' },
+    { angle: 80, kind: 'generic' },
+    { angle: 120, kind: 'specific', resource: 'wheat' },
+    { angle: 160, kind: 'specific', resource: 'sheep' },
+  ],
+  // 用「最接近的顶点」落子；坐标沿用引擎 56px 六边形基准
+  buildings: [
+    { player: 0, city: true, x: 48.5, y: 140 },
+    { player: 0, city: true, x: 194, y: 28 },
+    { player: 0, city: false, x: 97, y: 56 },
+    { player: 0, city: false, x: 145.5, y: 140 },
+
+    { player: 1, city: true, x: -145.5, y: -140 },
+    { player: 1, city: false, x: -145.5, y: 28 },
+    { player: 1, city: false, x: -97, y: -56 },
+
+    { player: 2, city: true, x: 145.5, y: -140 },
+    { player: 2, city: false, x: 48.5, y: -140 },
+    { player: 2, city: false, x: 97, y: -56 },
+
+    { player: 3, city: true, x: -97, y: 196 },
+    { player: 3, city: false, x: -145.5, y: 140 },
+    { player: 3, city: false, x: -242.5, y: 28 },
+  ],
+  roadChains: [
+    { player: 0, points: [[48.5, 140], [97, 56]] },
+    { player: 0, points: [[97, 56], [194, 28]] },
+    { player: 0, points: [[48.5, 140], [145.5, 140]] },
+    { player: 0, points: [[97, 56], [48.5, 28]] },
+
+    { player: 1, points: [[-145.5, -140], [-145.5, 28]] },
+    { player: 1, points: [[-145.5, 28], [-97, -56]] },
+    { player: 1, points: [[-145.5, 28], [-194, 56]] },
+
+    { player: 2, points: [[145.5, -140], [48.5, -140]] },
+    { player: 2, points: [[48.5, -140], [97, -56]] },
+    { player: 2, points: [[97, -56], [145.5, -28]] },
+
+    { player: 3, points: [[-242.5, 28], [-145.5, 140]] },
+    { player: 3, points: [[-145.5, 140], [-97, 196]] },
+    { player: 3, points: [[-145.5, 140], [-97, 112]] },
+  ],
+  robberTile: '2,0',
+};

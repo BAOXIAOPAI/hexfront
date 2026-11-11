@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9v14L16 30 3 23V9Z' fill='%23B3863F'/%3E%3C/svg%3E">
+  <title>六角拓荒 · 桌面视觉方向评审</title>
+  <style>
+    :root {
+      --paper: #F7EFDF;
+      --paper-deep: #EFE3CD;
+      --ink: #2A241B;
+      --ink-soft: #5A4B37;
+      --muted: #77664E;
+      --rule: #CEBC9B;
+      --rule-soft: rgba(90, 75, 55, .18);
+      --a: #1F5A63;
+      --a-brass: #B3863F;
+      --b: #D9654C;
+      --b-sun: #E9A93B;
+      --font-display: "Songti SC", "STSong", "Noto Serif SC", serif;
+      --font-body: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+      --font-latin: "Avenir Next", "Futura", "Georgia", serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(1100px 500px at 8% -10%, rgba(31, 90, 99, .12), transparent 60%),
+        radial-gradient(900px 500px at 98% 2%, rgba(217, 101, 76, .08), transparent 55%),
+        linear-gradient(180deg, #F3EAD8, #EDE1CB 58%, #E9DCC4);
+      min-height: 100vh;
+    }
+    ::selection { background: rgba(179, 134, 63, .25); }
+    .wrap { max-width: 1360px; margin: 0 auto; padding: 40px 40px 70px; }
+    .kicker {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-latin);
+      font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .kicker::before { content: ""; width: 26px; height: 1px; background: var(--ink); opacity: .45; }
+    .decision {
+      display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-top: 16px; padding: 7px 11px;
+      background: #23372F; color: #FFF6E2;
+      font-size: 11px; letter-spacing: .03em;
+    }
+    .decision a { color: #FFD98A; text-decoration: underline; text-underline-offset: 2px; }
+    h1 {
+      margin: 14px 0 10px;
+      font-family: var(--font-display);
+      font-size: clamp(34px, 4vw, 54px);
+      line-height: 1.12;
+      letter-spacing: .01em;
+      font-weight: 700;
+      max-width: 900px;
+    }
+    .lede {
+      max-width: 850px;
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--ink-soft);
+    }
+    .state {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin: 24px 0 30px;
+    }
+    .state span {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 6px 10px;
+      border: 1px solid var(--rule);
+      background: rgba(255, 250, 240, .48);
+      font-size: 11px;
+      color: var(--ink-soft);
+      letter-spacing: .02em;
+    }
+    .state b { color: var(--ink); font-weight: 600; }
+    .state .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--a-brass); }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+    .option {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 2px 0 rgba(90, 75, 55, .12), 0 18px 40px rgba(78, 57, 32, .08);
+      position: relative;
+    }
+    .option::before {
+      content: "";
+      position: absolute; top: 0; left: 0; right: 0; height: 6px;
+      background: linear-gradient(90deg, var(--topline));
+    }
+    .option.a { --topline: linear-gradient(90deg, #1F5A63 0 55%, #B3863F 55% 100%); }
+    .option.b { --topline: linear-gradient(90deg, #D9654C 0 38%, #E9A93B 38% 69%, #4C8B67 69% 100%); }
+    .option-head { padding: 26px 26px 18px; border-bottom: 1px solid var(--rule-soft); }
+    .option-tag {
+      display: inline-flex; align-items: baseline; gap: 9px;
+      font-family: var(--font-latin);
+      font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .option-tag b { font-family: var(--font-display); font-size: 34px; letter-spacing: 0; font-weight: 700; }
+    .option-head h2 {
+      margin: 8px 0 6px;
+      font-family: var(--font-display);
+      font-size: 30px;
+      line-height: 1.2;
+    }
+    .option-head p { margin: 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.65; }
+    .shot {
+      display: block; position: relative;
+      margin: 20px 22px 0;
+      border: 1px solid rgba(60, 46, 29, .42);
+      overflow: hidden;
+      background: #123;
+    }
+    .shot img { display: block; width: 100%; height: auto; transition: transform .35s ease; }
+    .shot:hover img { transform: scale(1.012); }
+    .shot em {
+      position: absolute; right: 10px; bottom: 10px;
+      font-style: normal;
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 6px 9px;
+      background: rgba(26, 22, 16, .82);
+      color: #F7EFDF;
+      font-size: 10px; letter-spacing: .04em;
+      border: 1px solid rgba(255, 255, 255, .22);
+      opacity: 0; transform: translateY(3px);
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .shot:hover em { opacity: 1; transform: translateY(0); }
+    .option-body { padding: 18px 26px 24px; }
+    .desc { font-size: 12.5px; line-height: 1.8; color: var(--ink-soft); margin: 0 0 14px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 16px; }
+    .chips span {
+      font-size: 10px; line-height: 1;
+      padding: 5px 7px;
+      border: 1px solid var(--rule);
+      color: var(--muted);
+      background: rgba(255, 250, 240, .45);
+      border-radius: 99px;
+    }
+    .links { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .links a { color: var(--ink); font-size: 11.5px; text-decoration: none; border-bottom: 1px solid var(--ink); padding-bottom: 1px; }
+    .links a.secondary { color: var(--muted); border-bottom-color: var(--rule); }
+    .links a:hover { color: var(--a); border-color: var(--a); }
+    .option.b .links a:hover { color: #A84934; border-color: #A84934; }
+
+    .detail-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
+      margin-top: 26px;
+    }
+    .detail {
+      background: rgba(255, 250, 240, .42);
+      border: 1px solid var(--rule-soft);
+      padding: 14px;
+      display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px;
+      align-items: center;
+    }
+    .detail img { width: 100%; display: block; border: 1px solid rgba(60, 46, 29, .25); }
+    .detail-copy .eyebrow { font-family: var(--font-latin); font-size: 9px; letter-spacing: .18em; color: var(--muted); text-transform: uppercase; }
+    .detail-copy b { display: block; margin: 5px 0 4px; font-family: var(--font-display); font-size: 18px; }
+    .detail-copy p { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--ink-soft); }
+
+    .notes {
+      margin-top: 36px;
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 28px;
+      align-items: start;
+    }
+    .how {
+      padding: 18px 20px;
+      border: 1px solid var(--rule);
+      background: rgba(255, 250, 240, .5);
+    }
+    .how h3 { margin: 0 0 8px; font-family: var(--font-display); font-size: 18px; }
+    .how p { margin: 0 0 8px; font-size: 12px; line-height: 1.7; color: var(--ink-soft); }
+    .how p:last-child { margin-bottom: 0; }
+    .how b { color: var(--ink); }
+    .ask h3 { margin: 0 0 8px; font-family: var(--font-display); font-size: 18px; }
+    .ask ol { margin: 0; padding-left: 19px; display: flex; flex-direction: column; gap: 7px; }
+    .ask li { font-size: 12.5px; line-height: 1.65; color: var(--ink-soft); }
+    .ask li b { color: var(--ink); }
+    footer {
+      margin-top: 40px; padding-top: 16px;
+      border-top: 1px solid var(--rule-soft);
+      display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+      font-size: 10.5px; color: var(--muted); line-height: 1.6;
+    }
+    footer b { color: var(--ink-soft); }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: var(--font-latin); font-size: 9px; letter-spacing: .14em;
+      color: var(--muted); text-transform: uppercase;
+    }
+    .badge::before { content: ""; width: 5px; height: 5px; background: var(--b); border-radius: 50%; }
+
+    @media (max-width: 1100px) {
+      .wrap { padding: 28px 20px 50px; }
+      .grid, .detail-row, .notes { grid-template-columns: 1fr; }
+      .detail { grid-template-columns: 1fr 1.2fr; }
+      .shot em { opacity: 1; transform: none; }
+    }
+    @media (max-width: 640px) {
+      .detail { grid-template-columns: 1fr; }
+      h1 { font-size: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Hex Frontier · Desktop UI Review · 2026-11-10</div>
+    <div class="decision">已选方向 B · 晴湾纸雕 <a href="papercut-states.html">查看五状态原型 →</a></div>
+    <h1>同一局，两种海岛质感</h1>
+    <p class="lede">两张画面使用完全相同的信息与对局状态，只更换视觉语言。请先看整体气质，再点开原型感受悬浮、报价、交易与建造选点。不是游戏首页，也不是空棋盘展示。</p>
+
+    <div class="state">
+      <span><b>第 14 回合</b> · 甲行动</span>
+      <span><i class="dot"></i><b>9 张手牌</b> · 掷 7 需弃 5</span>
+      <span><i class="dot"></i><b>2 条并存提议</b> · 丙、丁</span>
+      <span><i class="dot"></i><b>强盗在北岸 6 号田</b></span>
+      <span><i class="dot"></i><b>1440×900 / 1280×720</b> 均已检查</span>
+    </div>
+
+    <main class="grid">
+      <article class="option a">
+        <header class="option-head">
+          <div class="option-tag">Direction <b>A</b> · 航海图志</div>
+          <h2>航海图志</h2>
+          <p>手绘海图 · 羊皮纸 · 墨线与黄铜</p>
+        </header>
+        <a class="shot" href="folio.html" target="_blank" rel="noopener" aria-label="打开方案 A 可点击原型">
+          <img src="screens/folio-1440.png" alt="方案 A 航海图志的 1440×900 对局画面">
+          <em>打开可点击原型 ↗</em>
+        </a>
+        <div class="option-body">
+          <p class="desc">像一张摊在深色航海底图上的手绘岛屿。地块用水彩与墨线区分，边线、数字圆片与建筑都有档案图纸感；界面是羊皮纸、黄铜与图章，安静、克制，时间感更长。</p>
+          <div class="chips"><span>档案感</span><span>手绘海图</span><span>墨线 · 水彩</span><span>安静耐看</span></div>
+          <div class="links">
+            <a href="folio.html" target="_blank" rel="noopener">打开方案 A 原型</a>
+            <a class="secondary" href="screens/folio-1280.png" target="_blank" rel="noopener">1280×720 截图</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="option b">
+        <header class="option-head">
+          <div class="option-tag">Direction <b>B</b> · 晴湾纸雕</div>
+          <h2>晴湾纸雕</h2>
+          <p>层叠纸雕 · 丝网印海面 · 实体木块</p>
+        </header>
+        <a class="shot" href="papercut.html" target="_blank" rel="noopener" aria-label="打开方案 B 可点击原型">
+          <img src="screens/papercut-1440.png" alt="方案 B 晴湾纸雕的 1440×900 对局画面">
+          <em>打开可点击原型 ↗</em>
+        </a>
+        <div class="option-body">
+          <p class="desc">像一盒刚拆开的纸雕桌游。岛屿由层叠纸片与厚木块组成，海面是丝网印的波纹，卡片与按钮明显更厚、更圆、更想按；颜色更亮，桌面气氛更接近朋友围坐的下午。</p>
+          <div class="chips"><span>明亮纸艺</span><span>层叠纸雕</span><span>实体触感</span><span>轻松亲近</span></div>
+          <div class="links">
+            <a href="papercut.html" target="_blank" rel="noopener">打开方案 B 原型</a>
+            <a class="secondary" href="screens/papercut-1280.png" target="_blank" rel="noopener">1280×720 截图</a>
+          </div>
+        </div>
+      </article>
+    </main>
+
+    <section class="detail-row" aria-label="棋盘细节对照">
+      <div class="detail">
+        <img src="screens/folio-detail.png" alt="方案 A 棋盘细节">
+        <div class="detail-copy">
+          <span class="eyebrow">Board detail · A</span>
+          <b>海图上的岛</b>
+          <p>海岸线是手绘的，地块像水彩填色，建筑是带旗的墨线小屋；数字圆片带纸张旋转与钉孔，整座岛更像被标注过。</p>
+        </div>
+      </div>
+      <div class="detail">
+        <img src="screens/papercut-detail.png" alt="方案 B 棋盘细节">
+        <div class="detail-copy">
+          <span class="eyebrow">Board detail · B</span>
+          <b>桌上的纸岛</b>
+          <p>每块地形都是一层纸，羊、树与山有厚度；木块房子颜色更饱和，港口像插在水里的木牌，远看更像一盒实体游戏。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="notes">
+      <div class="how">
+        <h3>你可以怎么试</h3>
+        <p><b>看画面：</b>比较哪一版更像“朋友会摆在桌上的游戏”，而不是软件后台。</p>
+        <p><b>点一点：</b>两个原型里都可以悬停地块、点玩家/手牌/发展卡、接受或拒绝提议、开交易面板、进入建造选点、掷骰并看到手牌变化。信息与交互完全相同。</p>
+        <p><b>看小窗口：</b>把浏览器缩到 1280×720，检查手牌、报价与主按钮是否还完整；这一档已按最低支持尺寸收紧过。</p>
+      </div>
+      <div class="ask">
+        <h3>反馈时，描述感受就够了</h3>
+        <ol>
+          <li><b>哪一版更像你和朋友会玩的岛屿游戏？</b>“太像软件”或“太像玩具”都可以直说。</li>
+          <li><b>哪一版的棋盘更想盯着看？</b>你能否一眼找到自己的红色村庄和海岸港口？</li>
+          <li><b>哪一版的字和按钮让你更轻松？</b>有没有哪里觉得小、挤、或者看不清？</li>
+        </ol>
+      </div>
+    </section>
+
+    <footer>
+      <div><b>已选定：B · 晴湾纸雕。</b> 五状态原型与交接文档已就绪：<a href="papercut-states.html">查看五状态原型</a>。</div>
+      <div class="badge">Design prototype · not the shipped game</div>
+    </footer>
+  </div>
+</body>
+</html>
