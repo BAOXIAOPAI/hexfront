@@ -1,0 +1,552 @@
+/*
+ * 阶段 D 布局层：横屏信息架构、相机工具、抽屉、确认条、竖屏与结束界面。
+ *
+ * 与 styles.css 的分工：styles.css 继续管地形/卡牌/按钮的既有画风，
+ * 本文件只管「结构、尺寸、层级、触控目标」。容器一律用新 class 名，
+ * 避免旧的三栏布局和媒体查询补丁误伤新结构（指南 09 第 2.3 / 2.6 节）。
+ */
+
+:root {
+  --d-sea: #cfe7ee;
+  --d-sea-2: #a9d3de;
+  --d-surface: #fffaf1;
+  --d-surface-2: #f3e8d5;
+  --d-text: #2f241b;
+  --d-dim: #6d5c4c;
+  --d-border: #d9c6aa;
+  --d-accent: #b5651d;
+  --d-accent-soft: #f7e3c4;
+  --d-danger: #b23b2e;
+  --d-ok: #3c7a4e;
+  --d-tap: 44px;
+  --d-hdr: clamp(44px, 6.5dvh, 48px);
+  --d-rail: clamp(164px, 22vw, 196px);
+  --d-radius: 10px;
+  --d-shadow: 0 6px 22px rgba(47, 36, 27, .22);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; overscroll-behavior: none; }
+
+/* 覆盖旧样式的隐藏工具类，保证后引入的布局层说了算 */
+.hidden { display: none !important; }
+
+.shell {
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: var(--d-hdr) minmax(0, 1fr);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--d-sea);
+  color: var(--d-text);
+}
+
+/* ---------------------------------------------------------------- 顶栏 */
+/* 报告第 10 节：顶栏高度是硬约束，玩家卡片/长房间号/长昵称一律不许超出顶栏 */
+.hdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  padding: 0 8px;
+  background: var(--d-surface);
+  border-bottom: 1px solid var(--d-border);
+  z-index: 12;
+}
+.conn-chip, .turn-chip, .phase-flag {
+  display: flex; align-items: center; gap: 5px;
+  min-height: 30px; max-height: 100%; padding: 2px 8px;
+  border: 1px solid var(--d-border); border-radius: 999px;
+  background: var(--d-surface-2); font-size: 11px; white-space: nowrap;
+  min-width: 0; overflow: hidden;
+}
+.conn-chip { flex: 0 1 auto; max-width: 26%; }
+.turn-chip { flex: 0 1 auto; max-width: 28%; background: var(--d-accent-soft); border-color: var(--d-accent); font-weight: 700; }
+.conn-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--d-dim); flex: none; }
+.conn-chip .dot.on { background: var(--d-ok); box-shadow: 0 0 0 3px rgba(60, 122, 78, .18); }
+.conn-chip .dot.off { background: var(--d-danger); }
+.conn-chip b, .conn-chip #room-id { font-family: ui-monospace, Menlo, monospace; }
+/* 长房间号：省略号，不把顶栏撑破 */
+.conn-chip #room-id { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.turn-ava { width: 20px; height: 20px; flex: none; border-radius: 50%; background: #b9a48c; display: grid; place-items: center; color: #fff; font-size: 11px; }
+.turn-chip #turn-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-strip { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 100%; max-height: 100%; overflow: hidden; }
+.phase-flag { font-size: 10px; color: var(--d-dim); }
+.hdr-actions { display: flex; gap: 4px; flex: none; }
+.iconbtn {
+  min-width: var(--d-tap); min-height: var(--d-tap); max-height: 100%;
+  border: 1px solid var(--d-border); border-radius: var(--d-radius);
+  background: var(--d-surface); display: grid; place-items: center;
+  font-size: 15px; cursor: pointer;
+}
+.iconbtn[aria-pressed="true"] { background: var(--d-accent-soft); border-color: var(--d-accent); }
+:focus-visible { outline: 3px solid var(--d-accent); outline-offset: 2px; }
+
+/* 玩家条：一张卡片一行，严格限制在顶栏高度内；手牌数用紧凑徽标单独保留 */
+.player-strip .player {
+  flex: 1 1 0; min-width: 0; max-width: 25%;      /* 四位玩家也能并排 */
+  height: calc(var(--d-hdr) - 8px); max-height: calc(var(--d-hdr) - 8px);
+  display: flex; align-items: center; gap: 5px;
+  padding: 2px 6px; border-radius: 999px; box-shadow: none;
+}
+.player-strip .player .ava { width: 22px; height: 22px; flex: none; font-size: 11px; border-width: 1px; box-shadow: none; }
+.player-strip .player .pinfo { min-width: 0; }
+/* 修正：旧规则写的是 .name，但 ui.ts 生成的是 .pname —— 长昵称一直没被截断 */
+.player-strip .player .pname { min-width: 0; font-size: 11px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-strip .player .pname .flag { display: none; }  /* 顶栏只保留名字，详情在行动区 */
+.player-strip .player .pmeta, .player-strip .player .ptrack { display: none; }
+.player-strip .player .phand { font-size: 10px; color: var(--d-dim); white-space: nowrap; }
+.player-strip .player .pscore { font-size: 12px; flex: none; }
+.player-strip .player .pscore small { display: none; }
+
+/* ---------------------------------------------------------------- 主舞台 */
+.stage-main { display: grid; grid-template-columns: minmax(0, 1fr) var(--d-rail); min-height: 0; }
+/* D-01 / 指南 5.1：touch-action 只归棋盘输入层管。
+   旧实现把 none 放在整个舞台上，连弃牌面板内部滚动都被一起禁掉了。 */
+.board-stage { position: relative; min-width: 0; overflow: hidden; touch-action: auto;
+  background: radial-gradient(120% 120% at 50% 45%, var(--d-sea), var(--d-sea-2)); }
+#board { position: absolute; left: 0; top: 0; z-index: 1; touch-action: none; }
+
+/* 界面控件区：显式标记，保证按钮正常点击、浮层可滚动（D-01 边界） */
+.board-stage [data-board-ui] { touch-action: manipulation; }
+/* 纯说明浮层：不吃地图输入，也不接收点击（指南 5.1 / 报告第 5 节） */
+.board-stage [data-info-only] { pointer-events: none !important; }
+
+.cam-tools { position: absolute; top: 8px; right: 8px; z-index: 8; display: flex; flex-direction: column; gap: 5px; }
+.cam-btn {
+  width: var(--d-tap); height: var(--d-tap);
+  border: 1px solid var(--d-border); border-radius: var(--d-radius);
+  background: var(--d-surface); box-shadow: var(--d-shadow);
+  font-size: 18px; font-weight: 700; display: grid; place-items: center; cursor: pointer;
+}
+.cam-btn:active { background: var(--d-accent-soft); }
+
+.situation {
+  position: absolute; left: 8px; bottom: 8px; z-index: 9;
+  max-width: min(64%, 360px);
+  padding: 6px 10px; border: 1px solid var(--d-border); border-left: 4px solid var(--d-accent);
+  border-radius: 8px; background: rgba(255, 250, 241, .95);
+  box-shadow: var(--d-shadow); font-size: 12px; line-height: 1.5;
+}
+.situation[data-urgent="1"] { border-left-color: var(--d-danger); }
+.situation b { color: var(--d-accent); }
+
+.confirm-strip {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 20;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100% - 20px);
+  padding: 8px 10px; border: 2px solid var(--d-accent); border-radius: 14px;
+  background: var(--d-surface); box-shadow: var(--d-shadow);
+}
+.confirm-info { font-size: 12px; line-height: 1.35; min-width: 120px; }
+.confirm-info b { display: block; font-size: 13px; }
+.confirm-info small { color: var(--d-dim); }
+.confirm-candidates { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.toast {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 60;
+  max-width: 90%; padding: 8px 16px; border-radius: 999px;
+  background: var(--d-text); color: #fff; font-size: 12px; text-align: center;
+  opacity: 0; pointer-events: none; transition: opacity .18s;
+}
+.toast.show { opacity: 1; }
+
+/* ---------------------------------------------------------------- 棋盘浮层（D-02）
+ * 旧 styles.css 给 .setupbar / .robberbar / .discard-panel / .offer-bar 留下
+ * bottom:14px、min-width:228px、width:236/272px、translateX(-50%) 以及
+ * dpIn 动画的 transform 终态。只加 top 而不逐条复位，就会让 top+bottom 同时生效，
+ * 把提示条拉伸成 324px 高、盖住棋盘中心的大面板（844×390 实测）。
+ * 这里用更高特异性（.board-stage .x）把所有冲突属性一次性显式归零，
+ * 再单独定位成紧凑条；媒体查询与动画 transform 不会再改写它们。 */
+.board-stage .setupbar,
+.board-stage .robberbar,
+.board-stage .discard-panel,
+.board-stage .offer-bar {
+  position: absolute;
+  inset: auto;                 /* top/right/bottom/left 全部回到 auto */
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  transform: none;
+  animation: none;             /* dpIn 的 fill-mode:both 会覆盖居中 transform */
+  box-sizing: border-box;
+}
+
+.board-stage .setupbar,
+.board-stage .robberbar {
+  left: 50%; right: auto; top: 8px; bottom: auto;
+  width: max-content;
+  max-width: calc(100% - 100px);
+  max-height: min(42%, 150px);
+  overflow: auto;
+  transform: translateX(-50%);
+  padding: 5px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  z-index: 14;
+}
+/* 纯说明：不拦截地图输入（styles.css 里 setupbar 本来就是 none） */
+.board-stage .setupbar { pointer-events: none; }
+/* 含可点按钮：必须保持可操作 */
+.board-stage .robberbar { pointer-events: auto; }
+.board-stage .robberbar .rb-title { font-size: 12px; margin-bottom: 2px; }
+.board-stage .robberbar .rb-desc { font-size: 10.5px; line-height: 1.35; }
+.board-stage .robberbar .rb-row { margin-top: 5px; gap: 5px; }
+.board-stage .robberbar .rb-who { min-width: 64px; padding: 4px 8px; }
+
+/* 弃牌：底部横向紧凑条，行自动换行，绝不居中盖住棋盘 */
+.board-stage .discard-panel {
+  left: 8px; right: 8px; top: auto; bottom: 8px;
+  width: auto;
+  max-height: min(46%, 156px);
+  overflow: auto;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 2px 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  pointer-events: auto;
+  z-index: 22;
+}
+.board-stage .discard-panel .dp-head { flex: 0 0 100%; margin-bottom: 2px; }
+.board-stage .discard-panel .dp-row {
+  flex: 0 1 148px; padding: 2px 0; margin-top: 0; border-top: 0;
+}
+.board-stage .discard-panel .dp-hold { display: none; }
+.board-stage .discard-panel .dp-ok { flex: 0 0 100%; margin-top: 4px; }
+
+.board-stage .offer-bar {
+  left: 8px; right: auto; top: 8px; bottom: auto;
+  width: auto;
+  max-width: min(46%, 300px);
+  padding: 5px 10px;
+  white-space: normal;
+  pointer-events: auto;
+  z-index: 13;
+}
+.board-stage .table-empty { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+/* 情境提示、toast 都是纯说明，不拦截棋盘手势 */
+.board-stage .situation, .board-stage .toast { pointer-events: none; }
+/* 确认条 / 缩放工具含按钮 */
+.board-stage .confirm-strip, .board-stage .cam-tools { pointer-events: auto; }
+
+/* ---------------------------------------------------------------- 右侧行动区 */
+.rail { display: flex; flex-direction: column; min-height: 0; background: var(--d-surface); border-left: 1px solid var(--d-border); }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding: 6px; }
+.rail-pinned { flex: none; padding: 6px; border-top: 1px solid var(--d-border); background: var(--d-surface-2); touch-action: auto; }
+.rail-group { margin-bottom: 8px; }
+.rail-title { font-size: 10px; letter-spacing: .08em; color: var(--d-dim); margin: 0 0 4px 2px; }
+.rail-actions { display: flex; flex-direction: column; gap: 4px; }
+.rail-actions .btn, .btn.wide { width: 100%; min-height: var(--d-tap); }
+.rail-actions .badge { margin-left: auto; background: var(--d-accent); color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
+.rail-actions [aria-pressed="true"] { background: var(--d-accent-soft); border-color: var(--d-accent); }
+.rail-detail { font-size: 11px; color: var(--d-dim); }
+.rail-detail .row { display: flex; justify-content: space-between; padding: 2px 0; }
+.rail-detail .log { max-height: 140px; overflow-y: auto; font-size: 10.5px; line-height: 1.5; }
+
+.pinned-status { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; min-width: 0; }
+.pinned-status .dicepair { flex: none; }
+.pinned-status .feed { min-width: 0; flex: 1; }
+.pinned-status .feed .txt { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blocked-reason { font-size: 10.5px; line-height: 1.35; color: var(--d-danger); margin-bottom: 5px; }
+/* 报告第 10 节：固定行动按钮文字必须完整可读，不挤成两行 */
+.pinned-row { display: flex; gap: 4px; }
+.pinned-row .btn {
+  flex: 1 1 0; min-width: 0; min-height: var(--d-tap);
+  padding: 0 2px; font-size: 11px; line-height: 1.15;
+  white-space: nowrap; letter-spacing: -0.01em;
+}
+
+/* 报告第 10 节：右栏资源卡改成「紧凑图标 + 数量」，不倾斜、不入场动画、不占高度。
+   旧 styles.css 的 .card 带 rotate(var(--rot)) / cardIn 动画 / 88×104px；
+   @media(max-width:900px) 又加回 62×80px 的旋转卡。这里用更高特异性全部清掉，
+   保证首帧动画结束后与后续 STATE 重绘完全一致。 */
+.rail-scroll .handrow { display: flex; flex-wrap: wrap; gap: 3px; }
+.rail-scroll .handrow .card {
+  flex: 1 1 30%; min-width: 0; width: auto; height: 30px; max-height: 30px;
+  margin: 0; padding: 0 4px; border-width: 1px; border-radius: 7px;
+  transform: none; animation: none; transition: none;
+  display: flex; flex-direction: row; align-items: center; gap: 4px;
+}
+.rail-scroll .handrow .card:hover { transform: none; box-shadow: none; }
+.rail-scroll .handrow .card .cband {
+  width: 16px; height: 16px; flex: none; border: 0; border-radius: 4px;
+  font-size: 10px; line-height: 16px; text-shadow: none;
+}
+.rail-scroll .handrow .card .cnum {
+  margin: 0; font-size: 13px; line-height: 1;
+  font-variant-numeric: tabular-nums; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rail-scroll .handrow .card .cname { display: none; }
+.rail-scroll .devcards { display: flex; flex-direction: column; gap: 4px; margin-bottom: 5px; }
+
+/* ---------------------------------------------------------------- 侧抽屉 */
+.drawer {
+  position: absolute; top: var(--d-hdr); right: 0; bottom: 0; z-index: 40;
+  width: min(360px, 48vw);
+  display: flex; flex-direction: column;
+  background: var(--d-surface); border-left: 2px solid var(--d-border);
+  box-shadow: -10px 0 30px rgba(47, 36, 27, .2);
+  transform: translateX(105%); transition: transform .2s;
+}
+.drawer.open { transform: translateX(0); }
+/* 选择棋盘位置时收起大抽屉，只留确认条（指南 4.1） */
+.shell[data-picking="1"] .drawer { transform: translateX(105%); }
+.drawer-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--d-border); }
+.drawer-head h3 { margin: 0; flex: 1; font-size: 14px; }
+.drawer-close { min-height: var(--d-tap); min-width: var(--d-tap); border: 1px solid var(--d-border); border-radius: var(--d-radius); background: var(--d-surface-2); cursor: pointer; }
+.drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; touch-action: pan-y; }
+.drawer-foot { flex: none; display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--d-border); background: var(--d-surface-2); }
+.drawer-foot .btn { flex: 1; min-height: var(--d-tap); }
+
+/* 抽屉里的新增面板 */
+.d-panel { font-size: 12px; line-height: 1.6; }
+.d-panel h4 { margin: 0 0 6px; font-size: 13px; }
+.d-panel p { margin: 0 0 8px; color: var(--d-dim); }
+.d-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.d-chip {
+  min-height: var(--d-tap); min-width: var(--d-tap); padding: 0 10px;
+  border: 1px solid var(--d-border); border-radius: var(--d-radius);
+  background: var(--d-surface-2); cursor: pointer; font-size: 12px;
+}
+.d-chip[aria-pressed="true"] { background: var(--d-accent-soft); border-color: var(--d-accent); }
+.d-chip[disabled] { opacity: .45; cursor: not-allowed; }
+.d-note { font-size: 11px; color: var(--d-dim); line-height: 1.5; margin-bottom: 8px; }
+.d-error { font-size: 11.5px; color: var(--d-danger); margin-bottom: 8px; }
+.d-card { border: 1px solid var(--d-border); border-radius: var(--d-radius); padding: 8px; margin-bottom: 8px; background: var(--d-surface-2); }
+.d-card.expired { opacity: .6; border-style: dashed; }
+.d-card h4 { margin: 0 0 4px; font-size: 12px; }
+.d-card .line { font-size: 12px; }
+.d-card .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--d-dim); margin-top: 4px; }
+.d-card .ops { display: flex; gap: 6px; margin-top: 8px; }
+.d-card .ops .btn { flex: 1; min-height: var(--d-tap); }
+.d-help b { display: block; margin-bottom: 2px; }
+.d-help { margin-bottom: 12px; font-size: 12px; line-height: 1.65; }
+
+/* ---------------------------------------------------------------- 竖屏 / 结束 / 设置 */
+.portrait-gate {
+  /* 必须高于 .overlay 入房浮层(40) 与 .drawer(40)，否则竖屏卡片看得到却点不到；
+     仍低于 .end-screen(50) 与 .toast(60)，不抢对局结束界面的操作。 */
+  position: absolute; inset: var(--d-hdr) 0 0 0; z-index: 45;
+  /* 默认隐藏：只有竖屏媒体查询才展开，避免方向锁定成功后卡片残留 */
+  display: none; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(207, 231, 238, .86);
+}
+.portrait-card { width: min(360px, 100%); max-height: 100%; overflow-y: auto; background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 16px; padding: 14px; text-align: center; box-shadow: var(--d-shadow); }
+.portrait-card h3 { margin: 0 0 6px; font-size: 16px; }
+.portrait-card p { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--d-dim); }
+.portrait-status { text-align: left; font-size: 12px; line-height: 1.8; background: var(--d-surface-2); border-radius: var(--d-radius); padding: 8px; margin-bottom: 10px; }
+.portrait-card .btn { width: 100%; margin-top: 6px; min-height: var(--d-tap); }
+/* 主行动：一键进入横屏（浏览器要求用户手势，不能静默自动旋转） */
+#portrait-landscape { min-height: 48px; font-size: 14px; font-weight: 700; }
+.portrait-hint {
+  margin-top: 8px; padding: 8px 10px; border-radius: var(--d-radius);
+  border-left: 3px solid var(--d-danger); background: var(--d-accent-soft);
+  font-size: 11.5px; line-height: 1.5; text-align: left; color: var(--d-text);
+}
+.portrait-note { font-size: 11px; color: var(--d-dim); margin-top: 8px; }
+
+.end-screen { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(20, 32, 38, .72); }
+.end-card { width: min(400px, calc(100% - 32px)); background: var(--d-surface); border-radius: 18px; padding: 18px; text-align: center; box-shadow: var(--d-shadow); }
+.end-card h2 { margin: 0 0 8px; font-size: 20px; }
+.end-card p { font-size: 13px; margin: 0 0 10px; }
+.end-card .btn { min-height: var(--d-tap); margin-top: 10px; }
+#end-scores { font-size: 12px; line-height: 1.8; text-align: left; }
+
+/* ---------------------------------------------------------------- 断点与偏好 */
+@media (max-height: 430px) {
+  :root { --d-hdr: 44px; }
+  .rail-scroll { padding: 4px; }
+  .rail-group { margin-bottom: 5px; }
+  .rail-title { font-size: 9px; margin-bottom: 2px; }
+  .situation { font-size: 11px; padding: 4px 8px; bottom: 6px; }
+  /* 四个固定行动按钮在 164–196px 的右栏里单行会把「结束回合」挤成两行。
+     两行两列保证每个字完整可读，且仍保持 44px 触控目标（指南 4.1 / 报告第 10 节）。 */
+  .pinned-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .pinned-row .btn { font-size: 11px; min-width: 0; white-space: nowrap; }
+  .phase-flag { display: none; }
+}
+@media (orientation: portrait) and (max-width: 700px) {
+  .stage-main { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .portrait-gate:not(.hidden) { display: flex; }
+  .cam-tools { right: 6px; top: 6px; }
+  .situation { display: none; }
+  .drawer { width: min(360px, 92vw); }
+}
+@media (min-width: 1100px) and (orientation: landscape) {
+  :root { --d-rail: 232px; }
+  .rail-detail { display: block; }
+}
+@media (max-width: 900px) and (orientation: landscape) {
+  .rail-detail { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+[data-reduce-motion="1"] * { transition: none !important; animation: none !important; }
+
+/* 离线段：禁用所有会改变游戏的操作，但保留看盘与帮助 */
+.shell[data-connected="0"] .pinned-row .btn,
+.shell[data-connected="0"] .rail-actions .btn:not(#btn-help),
+.shell[data-connected="0"] .drawer-foot .btn { opacity: .5; pointer-events: none; }
+
+/* D-06：回前台核对中的清晰状态条（不靠颜色/声音单独传递信息） */
+.shell[data-reconciling="1"] .pinned-status::before {
+  content: '正在核对服务端状态';
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--d-accent);
+  border: 1px solid var(--d-accent);
+  border-radius: 999px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+/* ================================================================ ULS：CSS 自旋转底座
+ * 竖屏、已开局、且用户没选「仍按竖屏查看」时，Panels 把 #shell 标记成
+ * data-landscape-mode="css"，这里把整块界面当成一张横屏画布旋转 90°。
+ * 不依赖任何方向 API：iOS Safari / 微信 / 各厂商浏览器只要支持 transform 就生效；
+ * 系统方向被锁死时，用户物理把手机横过来，内容也正好正着显示。
+ *
+ * 几何（Vw = 竖屏视口宽 100dvw，Vh = 竖屏视口高 100dvh）：
+ *   未变换画布 = Vh(宽) × Vw(高)，transform-origin: 0 0。
+ *   cw : translateX(Vw) rotate(90deg)   → 客户端 (cx,cy) = (Vw - y, x)
+ *   ccw: translateY(Vh) rotate(-90deg)  → 客户端 (cx,cy) = (y, Vh - x)
+ * 旋转后 getBoundingClientRect 的 AABB 宽高互换（r.width=局部高、r.height=局部宽），
+ * camera.ts 用 measureRotated()/clientToLocal() 反解命中坐标，见 uls-landscape-hit 测试。
+ * ---------------------------------------------------------------- */
+.shell[data-landscape-mode="css"] {
+  /* 旋转画布的「宽」是视口高，右栏/顶栏按它重算，和真实小横屏一致 */
+  --d-hdr: 44px;
+  --d-rail: clamp(164px, calc(var(--ul-vh, 100dvh) * 0.22), 196px);
+  /* 安全区按旋转方向重映射。竖屏视口里 env(top)=刘海、env(bottom)=Home 条，
+     cw 旋转后它们分别落在画布的左 / 右： [顶,右,底,左] = [设备右,设备底,设备左,设备顶] */
+  --ul-safe-top: env(safe-area-inset-right, 0px);
+  --ul-safe-right: env(safe-area-inset-bottom, 0px);
+  --ul-safe-bottom: env(safe-area-inset-left, 0px);
+  --ul-safe-left: env(safe-area-inset-top, 0px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--ul-vh, 100dvh);
+  height: var(--ul-vw, 100dvw);
+  transform-origin: 0 0;
+  /* C1：角度取自唯一常量派生出的 --ul-rotation，绝不叠加 scale（要点 6） */
+  transform: translateX(var(--ul-vw, 100dvw)) rotate(var(--ul-rotation, 90deg));
+  padding: var(--ul-safe-top) var(--ul-safe-right) var(--ul-safe-bottom) var(--ul-safe-left);
+  /* 画布本身绝不做 transform 过渡：命中数学按「最终变换」算，过渡期间会点歪 */
+  transition: none;
+  z-index: 1;              /* 让内部 position:fixed 的 .overlay 也落进旋转画布 */
+}
+/* 反向自转：用户把手机往另一边横过来时，帮助面板「翻转方向」切换 */
+.shell[data-landscape-mode="css"][data-landscape-dir="ccw"] {
+  --ul-safe-top: env(safe-area-inset-left, 0px);
+  --ul-safe-right: env(safe-area-inset-top, 0px);
+  --ul-safe-bottom: env(safe-area-inset-right, 0px);
+  --ul-safe-left: env(safe-area-inset-bottom, 0px);
+  transform: translateY(var(--ul-vh, 100dvh)) rotate(var(--ul-rotation, -90deg));
+}
+
+/* 视口仍是竖屏，@media (orientation: portrait) 的退化规则照样命中，
+   必须用更高特异性逐条覆盖，让右侧行动区、情境提示、抽屉恢复横屏布局。 */
+.shell[data-landscape-mode="css"] .stage-main {
+  grid-template-columns: minmax(0, 1fr) var(--d-rail);
+}
+.shell[data-landscape-mode="css"] .rail { display: flex; }
+.shell[data-landscape-mode="css"] .phase-flag { display: none; }
+.shell[data-landscape-mode="css"] .board-stage .situation { display: block; }
+.shell[data-landscape-mode="css"] .drawer { width: min(360px, 48%); }
+.shell[data-landscape-mode="css"] .pinned-row {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+}
+.shell[data-landscape-mode="css"] .pinned-row .btn {
+  font-size: 11px; min-width: 0; white-space: nowrap;
+}
+/* 确认条原来额外叠加 env(safe-area-inset-bottom)：旋转后那是「设备底部」，
+   已由 shell 的左右 padding 处理，这里只留固定间距，避免双重留白。 */
+.shell[data-landscape-mode="css"] .confirm-strip { bottom: 10px; }
+
+/* ---------------------------------------------------------------- ULS 正立层
+ * #landscape-hud 在 #shell 之外，不参与自转：竖屏握持时文字/箭头/按钮始终正立。
+ * 层级：shell 自转时 z-index:1 形成独立层叠上下文，hud 用 70 位于其全部后代
+ * （overlay 40 / drawer 40 / portrait-gate 45 / end-screen 50 / toast 60）之上，
+ * 但容器 pointer-events:none、只有按钮 auto，贴底 ≤56px，不遮棋盘中心（要点 10）。
+ */
+.landscape-hud {
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100vw - 24px);
+  margin: 0 auto;
+  z-index: 70;
+  display: flex; align-items: center; gap: 6px;
+  max-height: 56px; min-height: 44px;
+  padding: 5px 6px;
+  border: 1px solid var(--d-border); border-radius: 12px;
+  background: rgba(255, 250, 241, .94);
+  color: var(--d-text);
+  box-shadow: var(--d-shadow);
+  pointer-events: none;            /* 容器不吃点击，棋盘/抽屉/结束页照常可点 */
+  opacity: 1;
+  transition: opacity .18s;
+}
+.landscape-hud.fading { opacity: 0; }
+.landscape-hud.lh-settled { max-height: 44px; }
+.lh-icon { width: 40px; height: 40px; flex: none; color: var(--d-accent); }
+.lh-copy {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; gap: 0;
+  font-size: 10.5px; line-height: 1.25;
+}
+.lh-main { font-size: 11.5px; line-height: 1.3; color: var(--d-text); }
+.lh-sub { color: var(--d-dim); }
+.lh-status { color: var(--d-dim); font-variant-numeric: tabular-nums; }
+.lh-copy span, .lh-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lh-btn {
+  flex: none;
+  min-width: 44px; min-height: 44px;         /* 要点 11 / A-11：触控目标不缩水 */
+  padding: 0 8px;
+  border: 1px solid var(--d-border); border-radius: var(--d-radius);
+  background: var(--d-surface-2); color: var(--d-text);
+  font-size: 10.5px; line-height: 1.2; white-space: nowrap;
+  cursor: pointer; pointer-events: auto;     /* 只有按钮可点 */
+}
+.lh-btn:active { background: var(--d-accent-soft); }
+/* 淡出后 / S6：只留常驻状态摘要 + 出口或恢复入口，高度收成细条，提示不复活 */
+.landscape-hud.lh-settled .lh-icon,
+.landscape-hud.lh-settled .lh-main,
+.landscape-hud.lh-settled .lh-sub,
+.landscape-hud.lh-settled #landscape-hint-close { display: none; }
+/* C1：箭头方向由唯一常量派生的 data-landscape-dir 控制（镜像即可，不新增第二方向入口） */
+.landscape-hud[data-landscape-dir="ccw"] .lh-icon { transform: scaleX(-1); }
+
+/* C7：可选 44×44 常驻方向入口，只在自转生效时出现；不点也完全可玩，不消费游戏点击 */
+.orientation-btn { display: none; }
+.shell[data-landscape-mode="css"] .orientation-btn { display: grid; }
+
+/* C6：结束页 / 抽屉 / 确认条都在旋转画布内，确认不被隐藏、点击照常可达 */
+.shell[data-landscape-mode="css"] .end-screen,
+.shell[data-landscape-mode="css"] .drawer,
+.shell[data-landscape-mode="css"] .confirm-strip { pointer-events: auto; }
+
+/* 减少动效（要点 9）：shell 自转本身无过渡；hud 淡出与箭头动效也被两种开关关掉，
+   静态文字/高亮保留。hud 在 shell 之外，[data-reduce-motion="1"] * 覆盖不到，
+   故由 JS 把同一开关同步成 .landscape-hud.reduce-motion，系统偏好用媒体查询兜底。 */
+.shell[data-landscape-mode="css"][data-reduce-motion="1"] { transition: none !important; }
+.landscape-hud.reduce-motion,
+.landscape-hud.reduce-motion .lh-icon { transition: none !important; animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .shell[data-landscape-mode="css"],
+  .landscape-hud,
+  .lh-icon { transition: none !important; animation: none !important; }
+}
