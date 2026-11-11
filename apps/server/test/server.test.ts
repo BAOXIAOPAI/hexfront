@@ -243,6 +243,87 @@ describe('WebSocket 联机', () => {
   });
 });
 
+describe('阶段 D 完整多人流程（真实 WS）', () => {
+  it('入房 → 开局 → 摆位 → 报价按 ID 成交 → 掷骰 → 结束回合清空报价', async () => {
+    const a = await TestClient.connect();
+    const b = await TestClient.connect();
+    a.send({ t: 'JOIN', roomId: 'd-e2e', name: '甲' });
+    const welcome = await a.wait('WELCOME');
+    expect(welcome.snapshot.offers).toEqual([]);
+    b.send({ t: 'JOIN', roomId: 'd-e2e', name: '乙' });
+    await b.wait('WELCOME');
+    await a.wait('LOBBY');
+
+    a.send({ t: 'START' });
+    let view = (await a.wait('STATE')).view;
+    await b.wait('STATE');
+    for (let i = 0; i < 4; i++) {
+      const seat = view.setup!.seat;
+      const actor = seat === 0 ? a : b;
+      actor.send({ t: 'COMMAND', cmd: { type: 'PLACE_SETTLEMENT', seat, ...findSpot(view) } });
+      const next = await a.wait('STATE');
+      await b.wait('STATE');
+      view = next.view;
+    }
+    expect(view.phase).toBe('play');
+
+    // 造资源（测试白盒）：让 0 号有木、1 号有麦，验证成交链路
+    const room = app.registry.get('d-e2e');
+    expect(room).toBeDefined();
+    room!.game!.players[0]!.resources.wood = 3;
+    room!.game!.players[1]!.resources.wheat = 3;
+
+    a.send({ t: 'OFFER', to: 1, give: { wood: 1 }, get: { wheat: 1 } });
+    const created = await a.wait('OFFERS');
+    expect(created.reason).toBe('CREATED');
+    const id = created.snapshot.offers[0]!.id;
+    expect(id).toBeTruthy();
+    await b.wait('OFFERS');
+
+    // 3 秒冷却：同一人立刻重发被拒，且 rid 回显
+    a.send({ t: 'OFFER', to: 1, give: { wood: 2 }, get: {}, rid: 'dup-1' });
+    const rejected = await a.wait('REJECT');
+    expect(rejected.reason).toBe('OFFER_COOLDOWN');
+    expect(rejected.rid).toBe('dup-1');
+
+    // 收件人按 ID 接受 → 交易事件广播 + 只删这一条
+    b.send({ t: 'OFFER_ACCEPT', offerId: id });
+    const accepted = await b.wait('OFFERS');
+    expect(accepted.reason).toBe('ACCEPTED');
+    expect(accepted.snapshot.offers).toEqual([]);
+    const traded = await a.wait('STATE');
+    await b.wait('STATE');
+    expect(traded.view.me.resources.wheat).toBeGreaterThan(0);
+
+    // 旧 ID 不能重复成交
+    b.send({ t: 'OFFER_ACCEPT', offerId: id, rid: 'again' });
+    const gone = await b.wait('REJECT');
+    expect(gone.reason).toBe('OFFER_NOT_FOUND');
+    expect(gone.rid).toBe('again');
+
+    // 由另一位玩家挂一条新报价，验证回合结束清空
+    b.send({ t: 'OFFER', to: 0, give: { wheat: 1 }, get: {} });
+    const pending = await b.wait('OFFERS');
+    expect(pending.snapshot.offers).toHaveLength(1);
+
+    a.send({ t: 'COMMAND', cmd: { type: 'ROLL_DICE', seat: 0, dice: [2, 3] } });
+    const roll = await a.wait('STATE');
+    await b.wait('STATE');
+    expect(roll.view.dice).toEqual([2, 3]);
+
+    a.send({ t: 'COMMAND', cmd: { type: 'END_TURN', seat: 0 } });
+    const ended = await a.wait('STATE');
+    await b.wait('STATE');
+    expect(ended.view.current).toBe(1);
+    const cleared = await b.wait('OFFERS');
+    expect(cleared.reason).toBe('END_TURN');
+    expect(cleared.snapshot.offers).toEqual([]);
+
+    a.close();
+    b.close();
+  });
+});
+
 describe('房间设置端到端', () => {
   it('开局前关掉起始发牌 → 摆完仍空手；开局后设置锁定', async () => {
     const a = await TestClient.connect();

@@ -45,14 +45,31 @@ const ui = new Ui({
     else if (kind === 'settlement') send({ type: 'BUILD_SETTLEMENT', seat: mySeat, vertex: target });
     else send({ type: 'BUILD_CITY', seat: mySeat, vertex: target });
   },
-  onOffer: (to, give, get) => client?.makeOffer(to, give, get),
-  onOfferAccept: (offerId) => client?.acceptOffer(offerId),
-  onOfferReject: (offerId) => client?.rejectOffer(offerId),
-  onOfferCancel: (offerId) => client?.cancelOffer(offerId),
-  onStart: () => client?.start(),
-  onSettings: (setupGrant) => client?.send({ t: 'SET_SETTINGS', setupGrant }),
+  onOffer: (to, give, get) => { if (canSubmit()) client?.makeOffer(to, give, get); },
+  onOfferAccept: (offerId) => { if (canSubmit()) client?.acceptOffer(offerId); },
+  onOfferReject: (offerId) => { if (canSubmit()) client?.rejectOffer(offerId); },
+  onOfferCancel: (offerId) => { if (canSubmit()) client?.cancelOffer(offerId); },
+  onStart: () => { if (canSubmit()) client?.start(); },
+  onSettings: (setupGrant) => { if (canSubmit()) client?.send({ t: 'SET_SETTINGS', setupGrant }); },
   onMoveRobber: (tile, stealFrom) =>
     send({ type: 'MOVE_ROBBER', seat: mySeat, tile, ...(stealFrom === undefined ? {} : { stealFrom }) }),
+  // ---- 阶段 D 新增的第 6 节入口 ----
+  onBuyDev: () => send({ type: 'BUY_DEV_CARD', seat: mySeat }),
+  onPlayKnight: (tile, stealFrom) =>
+    send({ type: 'PLAY_KNIGHT', seat: mySeat, tile, ...(stealFrom === undefined ? {} : { stealFrom }) }),
+  onPlayMonopoly: (resource) => send({ type: 'PLAY_MONOPOLY', seat: mySeat, resource }),
+  onPlayPlenty: (a, b) => send({ type: 'PLAY_PLENTY', seat: mySeat, resources: [a, b] }),
+  onPlayRoadBuilding: (edges) => send({ type: 'PLAY_ROAD_BUILDING', seat: mySeat, edges }),
+  onTradeBank: (give, get) => send({ type: 'TRADE_BANK', seat: mySeat, give, get }),
+  onPortTransfer: (beneficiary, give, get) =>
+    send({ type: 'PORT_TRANSFER', seat: mySeat, beneficiary, give, get }),
+  onRequestPick: (kind, purpose, done) => ui.requestBoardPick(kind, purpose, done),
+  // D-06：受控重连 + 探活超时兜底。核对完成前 setSynced(false)，
+  // 不自动重放离线期间的建造 / 接受报价等旧意图，过期报价不续期。
+  onResume: () => {
+    if (client) client.resume();
+    else ui.say('连接已断开，正在恢复；离线期间的点击不会被重放', '恢复');
+  },
   onJoin: (name, room) => {
     myName = name;
     roomId = normalizeRoom(room);
@@ -61,9 +78,24 @@ const ui = new Ui({
   },
 });
 
+/** 最近一次提交时刻：断线发生在「提交后、确认前」时用来提示正在核对结果 */
+let lastSubmitAt = 0;
+
+/** 核对完成前一律不提交会改变对局的意图；不排队、不重放（指南 10.1 / D-06） */
+function canSubmit(): boolean {
+  if (!client || client.state !== 'open' || client.isReconciling) {
+    ui.flashReject(client?.isReconciling
+      ? '正在核对服务端状态，刚才的操作没有发送；核对完成后请重新操作'
+      : '连接未就绪，操作没有发送；请等待恢复后重新操作');
+    return false;
+  }
+  return true;
+}
+
 function send(cmd: Command): void {
-  if (!client) return;
-  client.command(cmd);
+  if (!canSubmit()) return;
+  lastSubmitAt = Date.now();
+  client!.command(cmd);
 }
 
 function remember(): void {
@@ -81,8 +113,25 @@ function connect(): void {
   ui.setRoom(roomId);
 
   client = new GameClient(wsUrl, { roomId, name: myName }, {
-    onState: (state) => ui.setConnection(state),
+    onState: (state) => {
+      if (state !== 'reconnecting' || !client?.isReconciling) ui.setConnection(state);
+      // WebSocket OPEN 不等于已拿到可操作的完整房间状态
+      ui.setSynced(false);
+      // 提交后、确认前断线：明确提示「正在核对结果、不会自动重发」。
+      // 恢复流程重连时同样要给这句提示（指南 10.1 / D-06）。
+      if (state !== 'open' && Date.now() - lastSubmitAt < 8000) {
+        ui.flashReject('连接中断，正在核对刚才的操作结果；不会自动重发');
+      }
+    },
     onFatal: (reason) => ui.showFatal(fatalText(reason)),
+    onDrop: () => ui.flashReject('连接未就绪，操作没有发送；请等待恢复后重新操作'),
+    onReconcile: (phase, detail) => {
+      ui.setReconciling(phase, detail);
+      if (phase === 'synced') {
+        ui.setSynced(true);
+        ui.say('已核对服务端权威状态与未过期报价；离线期间的操作没有重放', '恢复');
+      }
+    },
     onMessage: (msg) => {
       switch (msg.t) {
         case 'WELCOME': {
@@ -94,6 +143,7 @@ function connect(): void {
           ui.setRoom(msg.roomId);
           // 恢复快照：只恢复未过期的报价，冷却以服务端时间为准
           ui.setOffers(msg.snapshot, mySeat);
+          ui.setSynced(true);
           if (msg.view) {
             view = msg.view;
             ui.hideOverlay();
@@ -123,6 +173,7 @@ function connect(): void {
           lastSeq = msg.seq;
           view = msg.view;
           ui.hideOverlay();
+          ui.setSynced(true);
           ui.render(view, msg.events);
           // 仅供自动化验收：?build=road|settlement|city 进入即展开对应建造模式
           if (!buildAutoApplied && buildParam) {
@@ -137,7 +188,8 @@ function connect(): void {
           return;
         }
         case 'REJECT': {
-          ui.say(rejectText(msg.reason, msg.detail), '拒绝');
+          // 拒绝原因同时出现在操作附近的提示条与底栏，不只在隐藏日志里
+          ui.flashReject(rejectText(msg.reason, msg.detail));
           return;
         }
         case 'OFFERS': {
