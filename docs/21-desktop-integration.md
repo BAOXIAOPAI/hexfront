@@ -150,3 +150,64 @@ Vite `5175`（普通）/ `5176`（验收）；`?name=甲&room=<room>` 真实 JOI
 
 未提交工作已备份：WIP commit `44f8aa3`（`refs/backup/desktop-integration-20261110`）+ `.workbuddy/backups/desktop-integration-20261110-1702/` 全量归档。
 本轮改动可用 `git diff` 审阅；如需整体回退到接入前状态，从该 WIP commit 恢复，不要对未提交文件执行 `reset --hard` / `clean`。
+
+---
+
+## 7. 四浏览器 UI 验收（2026-11-11/12）与发现的真实缺陷
+
+用 `probe/acceptance-4browser.mjs`（4 个独立 CDP target = 4 个浏览器客户端，
+全部真实指针点击）在**发布产物**（`node dist/server.cjs`，非 Vite）上跑完整对局。
+
+### 7.1 已通过的流程
+
+| 环节 | 结果 |
+|---|---|
+| 四客户端入房 + WELCOME/STATE | PASS（4 个独立座位、各自私有视图） |
+| 开局摆位 8 步（村庄+道路+确认） | PASS（`buildings 8 / roads 8`） |
+| 掷骰 | PASS（55+ 次，点数来自服务端） |
+| 回合推进 | PASS（实测推进到 turn=98） |
+| 弃牌（单人/多人同时） | PASS（11+ 次，`progress N/N → accepted=true`） |
+| 强盗移动 + 抽牌 | PASS（14+ 次，含「返回强盗任务」路径） |
+| 建造（道路） | PASS（roads 8→14，服务端扣资源） |
+| 控制台 | 全程 `consoleErrors=[]` |
+
+### 7.2 验收中发现并修复的 3 个真实产品缺陷
+
+这三个都是**只有真实多人长对局才会暴露**的问题，单元测试与单浏览器走查抓不到：
+
+**缺陷 1 · 多人同时弃牌时选择被清空**
+
+`paintDiscard()` 用 `${turn}:${need}:${total}` 作为「换一笔弃牌」的签名。
+`total` 是「还有几个人要弃」。多人同时弃牌时，别人先弃完会让 `total` 从 2 变 1，
+于是**我正在选、尚未提交的牌单被清空**，确认按钮永远不可用。
+
+修复：签名改为 `${turn}:${need}`（只认回合与自己的需求）。
+回归测试：`desktop-papercut.test.ts` → 「弃牌选择在多人同时弃牌时不被清空」。
+
+**缺陷 2 · 抽屉撑出横向溢出，把整块画布推出视口**
+
+`.shell` 用 `overflow: hidden`，但抽屉的 `translateX(105%)` 仍会撑出可滚动区域
+（实测 `scrollWidth 1878 > clientWidth 1440`）。浏览器的 focus / scrollIntoView
+会把画布横向推走，实测 `#board-stage` 左边界变成 **-416**、弃牌面板 `-405`，
+`elementFromPoint` 返回 `null` —— **所有按钮都点不到**。
+
+修复：`.shell` 改 `overflow: clip`；抽屉改 `position: fixed`（不再参与溢出计算）。
+修复后 `scrollWidth 1440 == clientWidth 1440`、`#board-stage [22,78,1054,658]` 正常。
+回归测试：`desktop-papercut.test.ts` → 「布局不产生横向溢出」。
+
+**缺陷 3 · 建造草稿残留导致强盗永远无法结算（会卡死对局）**
+
+玩家点了「建造」但还没选位置时掷出 7：`buildMode` 残留，而 `boardInteraction()`
+里 `buildMode` 优先于强盗待办 → **强盗热区永远不出现**（实测 `tiles: 0`），
+玩家无法结算、无法结束回合，对局卡死（实测 turn=64 空转 2000+ 次）。
+
+修复：`render()` 在 `pendingRobber` 且无待确认位置时清除 `buildMode`。
+回归测试：`desktop-papercut.test.ts` → 「掷出 7 时清掉未完成的建造草稿」。
+
+### 7.3 仍未达成的验收目标
+
+- **未打到 10 分终局**：连续跑到 turn=98 / 65 仍未结束。原因不是流程缺陷，
+  而是随机资源分布导致村庄（木1砖1羊1麦1）长期凑不齐；验收脚本已加银行兑换补齐，
+  但仍需极长对局时间。这一项**保持 NOT_RUN（终局段）**，不写成 PASS。
+- 结算页 / 回到房间：随终局一起未验证。
+- Edge / Safari、真机平板手机、200% 缩放、色盲复核：仍 NOT_RUN。
