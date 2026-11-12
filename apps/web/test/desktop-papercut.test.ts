@@ -160,3 +160,46 @@ describe('棋盘几何与建造链路 · 只换皮不动契约', () => {
     expect(CSS).toContain('--pc-rail-w: 324px');
   });
 });
+
+describe('弃牌选择在多人同时弃牌时不被清空（真实缺陷回归）', () => {
+  it('签名只认「回合 + 我需要弃几张」，不含「还有几个人要弃」', () => {
+    // 缺陷：旧签名是 `${turn}:${need}:${total}`。
+    // 多人同时弃牌时，别人先弃完会让 total 从 2 变 1，
+    // 导致我正在选、尚未提交的牌单被清空，确认按钮一直不可用。
+    const src = readFileSync(path.join(ROOT, 'src/ui.ts'), 'utf8');
+    const block = src.slice(src.indexOf('换回合、换需求就清空已选'), src.indexOf('const total = pickedTotal'));
+    // 只看真正赋值的那一行，避免命中解释性注释
+    const sigLine = block.split('\n').find((l) => l.includes('const sig =')) ?? '';
+    expect(sigLine).toContain('${view.turn}:${info.need}');
+    expect(sigLine).not.toContain('info.total');
+  });
+});
+
+describe('布局不产生横向溢出（真实缺陷回归）', () => {
+  it('shell 用 overflow:clip，抽屉用 fixed，避免把画布推出视口', () => {
+    // 缺陷：抽屉的 translateX(105%) 在 overflow:hidden 下仍会撑出可滚动区域
+    // （实测 scrollWidth 1878 > 1440）。浏览器 focus/scrollIntoView 会把整块画布
+    // 横向推走，导致棋盘与弃牌面板的按钮落在负坐标、点不到。
+    const shellBlock = CSS.slice(CSS.indexOf('body[data-theme="papercut"] .shell {'),
+      CSS.indexOf('/* 桌面 ≥1180px'));
+    expect(shellBlock).toContain('overflow: clip');
+    expect(shellBlock).not.toMatch(/^\s*overflow: hidden;/m);
+
+    const drawerBlock = CSS.slice(CSS.indexOf('body[data-theme="papercut"] .drawer {'));
+    expect(drawerBlock.slice(0, 300)).toContain('position: fixed');
+  });
+});
+
+describe('掷出 7 时清掉未完成的建造草稿（真实缺陷回归）', () => {
+  it('render() 在 pendingRobber 时清除 buildMode，避免强盗热区不出现', () => {
+    // 缺陷：玩家点「建造」但还没选位置就掷出 7，buildMode 残留；
+    // boardInteraction() 里 buildMode 优先于强盗 → 强盗热区永远不出现，
+    // 玩家无法结算、回合卡死（四浏览器验收实测 turn=64 空转）。
+    const src = readFileSync(path.join(ROOT, 'src/ui.ts'), 'utf8');
+    const renderBlock = src.slice(src.indexOf('render(view: PlayerView'), src.indexOf('private ensureGeo'));
+    expect(renderBlock).toContain('view.pendingRobber');
+    expect(renderBlock).toContain('this.buildMode = null');
+    // 不能误清「已经选了位置、正等确认」的草稿
+    expect(renderBlock).toContain('!this.pendingKey');
+  });
+});

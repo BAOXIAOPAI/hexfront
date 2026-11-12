@@ -430,6 +430,17 @@ export class Ui {
       if (this.interaction !== 'auto') this.interaction = 'auto';
     }
 
+    // 真实缺陷修复：若玩家点了「建造」但还没选位置就掷出 7，
+    // buildMode 会一直留着，而 boardInteraction() 里 buildMode 优先于强盗，
+    // 导致强盗热区永远不出现、玩家无法结算、回合卡死（实测 turn=64 空转）。
+    // 强盗待办出现时清掉未完成的建造草稿，把棋盘交还给强盗。
+    // 只清「还没选位置」的草稿；已选位置并弹出确认条的情况由 pendingKey 复查处理。
+    if (view.pendingRobber && view.pendingDiscards.length === 0 && this.buildMode && !this.pendingKey) {
+      this.buildMode = null;
+      this.buildMenuOpen = false;
+      this.paintBuild();
+    }
+
     // 换人摆位了就丢掉半截操作：否则会出现「点过村庄、轮到别人」的幽灵状态
     const info = setupInfo(view);
     const sig = info ? `${info.step}:${info.seat}` : '';
@@ -1206,8 +1217,12 @@ export class Ui {
       return;
     }
 
-    // 换回合、换需求就清空已选，避免把上一轮的牌单带过来
-    const sig = `${view.turn}:${info.need}:${info.total}`;
+    // 换回合、换需求就清空已选，避免把上一轮的牌单带过来。
+    // 注意：签名里不能放 info.total（还有几个人要弃）——
+    // 多人同时弃牌时，别人弃完会让 total 从 2 变 1，从而把「我」正在选、
+    // 尚未提交的牌单清空，表现为「加到一半突然归零、确认按钮一直不可用」。
+    // 只认「回合 + 我需要弃几张」，这两个变了才说明这是另一笔弃牌。
+    const sig = `${view.turn}:${info.need}`;
     if (sig !== this.discardSig) {
       this.discardSig = sig;
       this.pick = emptyPick();

@@ -68,7 +68,11 @@ body[data-theme="papercut"] :focus-visible {
 body[data-theme="papercut"] .shell {
   position: relative;
   height: 100dvh;
-  overflow: hidden;
+  /* 注意：只用 overflow:hidden 不够——抽屉的 translateX(105%) 仍会撑出可滚动区域
+     （实测 scrollWidth 1878 > 1440），focus/scrollIntoView 会把整块画布横向推走，
+     表现为「棋盘和弃牌面板跑到视口左侧外、+ 按钮点不到」。
+     用 clip 彻底禁止滚动；同时抽屉改 fixed 定位，不再参与 shell 的溢出计算。 */
+  overflow: clip;
   display: grid;
   grid-template-rows: var(--pc-top-h) minmax(0, 1fr) var(--pc-shelf-h);
   grid-template-columns: minmax(0, 1fr);
@@ -500,6 +504,8 @@ body[data-theme="papercut"] .action-note:empty { display: none; }
 
 /* ---------------------------------------------------------------- 7. 抽屉 / 浮层 / 结束 */
 body[data-theme="papercut"] .drawer {
+  /* fixed：不参与 .shell 的溢出/滚动计算，避免把整块画布撑出视口 */
+  position: fixed;
   top: calc(var(--pc-top-h) + 8px); bottom: calc(var(--pc-shelf-h) + 8px); right: var(--pc-pad);
   width: min(438px, calc(100vw - 48px));
   background: var(--pc-paper); border: 2px solid var(--pc-edge); border-radius: 16px;
