@@ -1,0 +1,246 @@
+{
+  "startedAt": "2026-11-12T05:37:29.745Z",
+  "port": 18787,
+  "scenarios": [
+    {
+      "label": "4 人标准盘",
+      "players": 4,
+      "board": "base",
+      "checks": {
+        "noAutoStart": true,
+        "createdCapacity": true,
+        "createdHost": true,
+        "nonHostRejected": true,
+        "boardApplied": true,
+        "mapSnapshot": {
+          "tiles": 19,
+          "ports": 9,
+          "deserts": 1,
+          "seed": "l5-p4:2:1794461849988:SET_ROOM_CONFIG",
+          "boardVersion": 2
+        },
+        "configClearsReady": true,
+        "allReady": true,
+        "started": true,
+        "actionOrder": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "duplicateStartRejected": true,
+        "setup": {
+          "steps": 8,
+          "buildings": 8,
+          "roads": 8,
+          "phase": "play"
+        },
+        "firstPlayer": true,
+        "play": {
+          "turns": 400,
+          "sevens": 65,
+          "rejects": [],
+          "phase": "play",
+          "winner": null,
+          "turn": 401
+        }
+      }
+    },
+    {
+      "label": "5 人标准盘",
+      "players": 5,
+      "board": "base",
+      "checks": {
+        "noAutoStart": true,
+        "createdCapacity": true,
+        "createdHost": true,
+        "nonHostRejected": true,
+        "boardApplied": true,
+        "mapSnapshot": {
+          "tiles": 19,
+          "ports": 9,
+          "deserts": 1,
+          "seed": "l5-p5:2:1794461871546:SET_ROOM_CONFIG",
+          "boardVersion": 2
+        },
+        "configClearsReady": true,
+        "allReady": true,
+        "started": true,
+        "actionOrder": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "duplicateStartRejected": true,
+        "setup": {
+          "steps": 10,
+          "buildings": 10,
+          "roads": 10,
+          "phase": "play"
+        },
+        "firstPlayer": true,
+        "play": {
+          "turns": 30,
+          "sevens": 7,
+          "rejects": [],
+          "phase": "play",
+          "winner": null,
+          "turn": 31
+        }
+      }
+    },
+    {
+      "label": "6 人扩展盘",
+      "players": 6,
+      "board": "ext",
+      "checks": {
+        "noAutoStart": true,
+        "createdCapacity": true,
+        "createdHost": true,
+        "nonHostRejected": true,
+        "boardApplied": true,
+        "mapSnapshot": {
+          "tiles": 30,
+          "ports": 11,
+          "deserts": 2,
+          "seed": "l5-p6:2:1794461872934:SET_ROOM_CONFIG",
+          "boardVersion": 2
+        },
+        "configClearsReady": true,
+        "allReady": true,
+        "started": true,
+        "actionOrder": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "duplicateStartRejected": true,
+        "setup": {
+          "steps": 12,
+          "buildings": 12,
+          "roads": 12,
+          "phase": "play"
+        },
+        "firstPlayer": true,
+        "play": {
+          "turns": 30,
+          "sevens": 8,
+          "rejects": [],
+          "phase": "play",
+          "winner": null,
+          "turn": 31
+        }
+      }
+    },
+    {
+      "label": "7 人扩展盘（自定义）",
+      "players": 7,
+      "board": "ext",
+      "checks": {
+        "noAutoStart": true,
+        "createdCapacity": true,
+        "createdHost": true,
+        "nonHostRejected": true,
+        "boardApplied": true,
+        "mapSnapshot": {
+          "tiles": 30,
+          "ports": 11,
+          "deserts": 2,
+          "seed": "l5-p7:2:1794461874367:SET_ROOM_CONFIG",
+          "boardVersion": 2
+        },
+        "configClearsReady": true,
+        "allReady": true,
+        "started": true,
+        "actionOrder": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "duplicateStartRejected": true,
+        "setup": {
+          "steps": 14,
+          "buildings": 14,
+          "roads": 14,
+          "phase": "play"
+        },
+        "firstPlayer": true,
+        "play": {
+          "turns": 30,
+          "sevens": 7,
+          "rejects": [],
+          "phase": "play",
+          "winner": null,
+          "turn": 31
+        }
+      }
+    },
+    {
+      "label": "8 人扩展盘（自定义）",
+      "players": 8,
+      "board": "ext",
+      "checks": {
+        "noAutoStart": true,
+        "createdCapacity": true,
+        "createdHost": true,
+        "nonHostRejected": true,
+        "boardApplied": true,
+        "mapSnapshot": {
+          "tiles": 30,
+          "ports": 11,
+          "deserts": 2,
+          "seed": "l5-p8:2:1794461875849:SET_ROOM_CONFIG",
+          "boardVersion": 2
+        },
+        "configClearsReady": true,
+        "allReady": true,
+        "started": true,
+        "actionOrder": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "duplicateStartRejected": true,
+        "setup": {
+          "steps": 16,
+          "buildings": 16,
+          "roads": 16,
+          "phase": "play"
+        },
+        "firstPlayer": true,
+        "play": {
+          "turns": 400,
+          "sevens": 73,
+          "rejects": [],
+          "phase": "play",
+          "winner": null,
+          "turn": 401
+        }
+      }
+    }
+  ],
+  "errors": [],
+  "health": {
+    "ok": true,
+    "rooms": []
+  },
+  "serverLog": [
+    "[hexfront] server listening on http://127.0.0.1:18787",
+    "[hexfront] ws endpoint: ws://<host>:<port>/?sharecode=<code>",
+    "[hexfront] SIGTERM received, shutting down"
+  ]
+}

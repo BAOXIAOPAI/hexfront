@@ -6,8 +6,20 @@
  */
 
 import type { GameState } from '@hexfront/engine';
-import type { Room, SocketLike } from '../src/room.js';
+import type { Room, SocketLike, RoomOptions } from '../src/room.js';
 import type { ServerMessage } from '../src/protocol.js';
+
+/**
+ * 文档 23 L-1：内部测试夹具边界。
+ * 旧测试用 2–3 人房验证交易/摆位/视角，产品规则是「至少 4 人、全员准备后
+ * 房主手动开始、取消满员自动开局」。夹具通过显式选项保留旧行为，
+ * 产品默认值绝不为了兼容旧测试而放宽。
+ */
+export const FIXTURE_ROOM_OPTIONS: Partial<RoomOptions> = {
+  minPlayers: 2,
+  autoStartOnFull: true,
+  skipReadyCheck: true,
+};
 
 type StateMsg = Extract<ServerMessage, { t: 'STATE' }>;
 type RejectMsg = Extract<ServerMessage, { t: 'REJECT' }>;

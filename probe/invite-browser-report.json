@@ -1,0 +1,26 @@
+{
+  "startedAt": "2026-11-12T10:56:24.039Z",
+  "checks": {
+    "randomRoom": {
+      "room": "fair-harbor-dzk6",
+      "valid": true,
+      "hasReroll": true,
+      "hasCopy": true
+    },
+    "linkHasRoom": true,
+    "linkPassesSharecode": true,
+    "linkHasNoName": true,
+    "textRewritten": true,
+    "rerollChangesRoom": true,
+    "rerollSyncsLink": true,
+    "copyFeedback": true,
+    "inviteLinkPrefillsRoom": true
+  },
+  "errors": [],
+  "summary": {
+    "total": 9,
+    "passed": 9,
+    "failed": [],
+    "pageErrors": 0
+  }
+}

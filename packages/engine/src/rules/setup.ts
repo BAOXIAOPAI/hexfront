@@ -42,7 +42,8 @@ export function placeSettlement(board: Board, state: GameState, cmd: PlaceCmd): 
   if (state.roads[cmd.edge] !== undefined) return { ok: false, reason: 'EDGE_TAKEN' };
 
   const next = structuredClone(state);
-  const order = setupSeatOrder(next.players.length);
+  // 文档 23 L-4：选地顺序来自稳定的 actionOrder，而非名次恒等映射
+  const order = setupSeatOrder(next.players.length, next.actionOrder);
   const round: 1 | 2 = next.setup!.step < next.players.length ? 1 : 2;
 
   next.buildings[cmd.vertex] = { owner: cmd.seat, city: false };
@@ -73,10 +74,12 @@ export function placeSettlement(board: Board, state: GameState, cmd: PlaceCmd): 
   if (next.setup!.step >= order.length) {
     next.phase = 'play';
     next.setup = null;
-    next.current = 0;
+    // 文档 23 L-4：正常首回合从 actionOrder 第一人开始，不是固定 0
+    const first = next.actionOrder[0] ?? 0;
+    next.current = first;
     next.hasRolled = false;
-    events.push({ type: 'SETUP_COMPLETED', firstPlayer: 0 });
-    events.push({ type: 'TURN_BEGUN', player: 0, turn: next.turn });
+    events.push({ type: 'SETUP_COMPLETED', firstPlayer: first });
+    events.push({ type: 'TURN_BEGUN', player: first, turn: next.turn });
   } else {
     next.setup!.seat = order[next.setup!.step]!;
   }
@@ -85,6 +88,6 @@ export function placeSettlement(board: Board, state: GameState, cmd: PlaceCmd): 
 }
 
 /** 开局摆位的完整座位序列，供 UI 提示下一步该谁 */
-export function setupSequence(playerCount: number): number[] {
-  return setupSeatOrder(playerCount);
+export function setupSequence(playerCount: number, actionOrder?: readonly number[]): number[] {
+  return setupSeatOrder(playerCount, actionOrder);
 }

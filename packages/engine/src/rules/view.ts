@@ -74,6 +74,10 @@ export interface PlayerView {
   pendingDiscards: PendingDiscard[];
   /** 掷出 7、且全员弃牌已完成，正等掷骰者移动强盗 */
   pendingRobber: boolean;
+  /** 文档 23 L-4：开局前确认的行动顺序（公开信息，用于 UI 展示蛇形与回合次序） */
+  actionOrder: number[];
+  /** 地图类型标识（base-4p / ext-6p），供前端区分标准盘/扩展盘 */
+  mapId: string;
 }
 
 function handSize(res: ResourceCount): number {
@@ -145,6 +149,8 @@ export function viewFor(board: Board, state: GameState, viewer: number): PlayerV
       .map(([seat, count]) => ({ player: Number(seat), count }))
       .sort((a, b) => a.player - b.player),
     pendingRobber: state.pendingRobber,
+    actionOrder: state.actionOrder.slice(),
+    mapId: state.mapId,
   };
 }
 

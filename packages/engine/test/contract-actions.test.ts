@@ -112,7 +112,7 @@ describe('第 8.2 节行动矩阵（阶段 C 已实现）', () => {
       { type: 'BUILD_ROAD', seat: 0, edge: board.geo.edgeKeys[0]! },
       { type: 'TRADE_BANK', seat: 0, give: 'wood', get: 'brick' },
       { type: 'TRADE_PLAYER', seat: 0, withPlayer: 1, give: { wood: 1 }, get: {} },
-      { type: 'PORT_TRANSFER', seat: 0, beneficiary: 1, give: 'wood', get: 'brick' },
+      { type: 'TRADE_PORT', seat: 0, port: 'x|y', give: { wood: 1 }, get: 'brick' },
       { type: 'BUY_DEV_CARD', seat: 0 },
       { type: 'PLAY_KNIGHT', seat: 0, tile: '0,0' },
       { type: 'MOVE_ROBBER', seat: 0, tile: '0,0' },
@@ -125,7 +125,7 @@ describe('第 8.2 节行动矩阵（阶段 C 已实现）', () => {
     }
   });
 
-  it('指南 8.2：弃完、强盗待移动时恢复建造/银行/借港/玩家交易，发展卡与结束回合仍禁', () => {
+  it('指南 8.2：弃完、强盗待移动时恢复建造/银行/港口/玩家交易，发展卡与结束回合仍禁', () => {
     const { board, state } = playPhase();
     const after = finishDiscards(board, rollSeven(board, setHands(state, [{ wood: 9 }])));
     expect(Object.keys(after.pendingDiscards)).toHaveLength(0);
@@ -138,7 +138,7 @@ describe('第 8.2 节行动矩阵（阶段 C 已实现）', () => {
 
     const released: Command[] = [
       { type: 'BUILD_ROAD', seat: 0, edge: board.geo.edgeKeys[0]! },
-      { type: 'PORT_TRANSFER', seat: 0, beneficiary: 1, give: 'wood', get: 'brick' },
+      { type: 'TRADE_PORT', seat: 0, port: 'x|y', give: { wood: 1 }, get: 'brick' },
       { type: 'TRADE_PLAYER', seat: 0, withPlayer: 1, give: { wood: 1 }, get: {} },
     ];
     for (const cmd of released) {

@@ -42,8 +42,12 @@ describe('A-4b · 入房表单：动作键语义与引导（不改布局）', ()
     expect(el('f-name').getAttribute('enterkeyhint')).toBe('next');
     expect(el('f-room').getAttribute('enterkeyhint')).toBe('go');
     const form = el('join-form');
-    expect(form.textContent).toContain('输完按键盘上的『前往』即可加入');
-    expect(form.querySelector('.hint')).toBeTruthy();          // 复用现有 .hint 小字样式
+    // 文档 23：邀请链接引导取代了旧的「键盘『前往』」软键盘引导（后者在有分享链接后已不准确）
+    expect(form.textContent).toContain('邀请链接');
+    expect(form.querySelector('#btn-copy-invite')).toBeTruthy();
+    expect(form.querySelector('#btn-reroll-room')).toBeTruthy();
+    // 说明文字在 form 之后（与表单分开），仍复用 .hint 小字样式
+    expect(el('sheet').querySelector('.hint')).toBeTruthy();
     expect(form.querySelector('button[type="submit"]')).toBeTruthy();
     expect(el('f-name').getAttribute('enterkeyhint')).not.toBe('go'); // 两个框不能都是 go
   });
@@ -72,6 +76,29 @@ describe('A-4b · 入房表单：动作键语义与引导（不改布局）', ()
     room.value = 'qa-ul';
     fire(el('join-form'), 'submit', {});
     expect(calls['onJoin']).toHaveBeenCalledWith('小满', 'qa-ul');
+  });
+
+  it('换一个随机房间号 / 复制邀请链接：链接跟着房间号更新，且不带昵称', () => {
+    // 文档 23：入房页预生成随机号，换号后邀请链接必须同步变化
+    let current = 'quiet-harbor-7k2m';
+    (calls as Record<string, ReturnType<typeof vi.fn>>)['onRerollRoom'] = vi.fn(() => {
+      current = 'sunny-meadow-3x9p';
+      return current;
+    });
+    (calls as Record<string, ReturnType<typeof vi.fn>>)['onCopyInvite'] = vi.fn();
+    const linkFor = (id: string) => `https://hexfront.example/?room=${id}&sharecode=SC-1`;
+    ui.showJoin({ name: '', roomId: current, inviteUrl: linkFor(current), inviteUrlFor: linkFor });
+
+    expect((el('f-invite') as unknown as { value: string }).value).toContain('quiet-harbor-7k2m');
+    fire(el('btn-reroll-room'), 'click', {});
+    expect((el('f-room') as unknown as { value: string }).value).toBe('sunny-meadow-3x9p');
+    expect((el('f-invite') as unknown as { value: string }).value).toContain('sunny-meadow-3x9p');
+    expect((calls as Record<string, ReturnType<typeof vi.fn>>)['onRoomIdChange'])
+      .toHaveBeenCalledWith('sunny-meadow-3x9p');
+
+    fire(el('btn-copy-invite'), 'click', {});
+    expect((calls as Record<string, ReturnType<typeof vi.fn>>)['onCopyInvite'])
+      .toHaveBeenCalledWith('sunny-meadow-3x9p');
   });
 
   it('房间号留空仍回落 main；空名字不提交（原行为不变）', () => {

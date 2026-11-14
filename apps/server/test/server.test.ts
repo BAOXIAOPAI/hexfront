@@ -17,7 +17,13 @@ let baseUrl = '';
 let wsUrl = '';
 
 beforeAll(async () => {
-  app = createAppServer({ port: 0, host: '127.0.0.1', heartbeatMs: 0 });
+  // 文档 23 L-1 夹具边界：真实 WS 集成测试沿用 2 人房、满员自动开局、跳过准备检查。
+  // 产品默认值（4 人、全员准备后房主手动开始）由新测试另行覆盖。
+  app = createAppServer({
+    port: 0, host: '127.0.0.1', heartbeatMs: 0,
+    // 2 人夹具：不自动开局，由测试显式发 START；固定棋盘保持既有几何断言
+    capacity: 2, minPlayers: 2, skipReadyCheck: true, board: buildBoard(MAP_4P),
+  });
   const port = await app.listen();
   baseUrl = `http://127.0.0.1:${port}`;
   wsUrl = `ws://127.0.0.1:${port}/`;
@@ -80,7 +86,8 @@ class TestClient {
 
   send(msg: ClientMessage): void {
     // 测试目标是联机流程，版本字段统一补齐；版本不匹配另有专门用例直接发原始 JSON
-    const payload = msg.t === 'JOIN' && msg.v === undefined
+    // F1：CREATE / JOIN 都带 v（两条消息各自校验版本）
+    const payload = (msg.t === 'JOIN' || msg.t === 'CREATE') && msg.v === undefined
       ? { ...msg, v: PROTOCOL_VERSION }
       : msg;
     this.ws.send(JSON.stringify(payload));
@@ -117,7 +124,7 @@ describe('WebSocket 联机', () => {
     const a = await TestClient.connect();
     const b = await TestClient.connect();
 
-    a.send({ t: 'JOIN', roomId: 't1', name: '阿甲' });
+    a.send({ t: 'CREATE', roomId: 't1', name: '阿甲' });
     const welcomeA = await a.wait('WELCOME');
     expect(welcomeA.seat).toBe(0);
     expect(welcomeA.roomId).toBe('t1');
@@ -173,7 +180,7 @@ describe('WebSocket 联机', () => {
   it('非当前玩家发命令只得 REJECT，且不影响别人', async () => {
     const a = await TestClient.connect();
     const b = await TestClient.connect();
-    a.send({ t: 'JOIN', roomId: 't1-reject', name: '甲' });
+    a.send({ t: 'CREATE', roomId: 't1-reject', name: '甲' });
     await a.wait('WELCOME');
     b.send({ t: 'JOIN', roomId: 't1-reject', name: '乙' });
     await b.wait('WELCOME');
@@ -222,7 +229,7 @@ describe('WebSocket 联机', () => {
 
   it('WELCOME 带恢复快照与权威状态版本', async () => {
     const c = await TestClient.connect();
-    c.send({ t: 'JOIN', roomId: 'snapshot', name: '甲' });
+    c.send({ t: 'CREATE', roomId: 'snapshot', name: '甲' });
     const welcome = await c.wait('WELCOME');
     expect(welcome.snapshot.offers).toEqual([]);
     expect(welcome.snapshot.version).toBe(0);
@@ -247,7 +254,7 @@ describe('阶段 D 完整多人流程（真实 WS）', () => {
   it('入房 → 开局 → 摆位 → 报价按 ID 成交 → 掷骰 → 结束回合清空报价', async () => {
     const a = await TestClient.connect();
     const b = await TestClient.connect();
-    a.send({ t: 'JOIN', roomId: 'd-e2e', name: '甲' });
+    a.send({ t: 'CREATE', roomId: 'd-e2e', name: '甲' });
     const welcome = await a.wait('WELCOME');
     expect(welcome.snapshot.offers).toEqual([]);
     b.send({ t: 'JOIN', roomId: 'd-e2e', name: '乙' });
@@ -329,7 +336,7 @@ describe('房间设置端到端', () => {
     const a = await TestClient.connect();
     const b = await TestClient.connect();
 
-    a.send({ t: 'JOIN', roomId: 'grant-off', name: '甲' });
+    a.send({ t: 'CREATE', roomId: 'grant-off', name: '甲' });
     await a.wait('WELCOME');
     const initial = await a.wait('SETTINGS');
     expect(initial.settings.setupGrant).toBe(true);

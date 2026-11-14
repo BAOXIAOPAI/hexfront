@@ -28,6 +28,7 @@ export type GameEvent =
   | { type: 'LARGEST_ARMY_CHANGED'; player: number; previous: number | null; count: number }
   | { type: 'TRADE_COMPLETED'; a: number; b: number; aGives: Partial<ResourceCount>; bGives: Partial<ResourceCount> }
   | { type: 'BANK_TRADED'; player: number; give: Resource; get: Resource; ratio: number }
-  | { type: 'PORT_TRANSFERRED'; executor: number; beneficiary: number; give: Resource; get: Resource; ratio: number }
+  /** F5：自有港口兑换；give 是资源袋（通用港可混合），不再有 executor/beneficiary 借港代换 */
+  | { type: 'PORT_TRADED'; player: number; port: string; give: Partial<ResourceCount>; get: Resource; ratio: number }
   | { type: 'GAME_WON'; player: number; score: number }
   | { type: 'TURN_ENDED'; player: number };

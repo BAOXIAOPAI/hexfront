@@ -59,25 +59,34 @@ export const TERRAIN_SHORT: Record<Terrain, string> = {
 /** 2~12 的概率点（36 面骰中的出现次数） */
 export const PIPS: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
-/** 玩家色：甲珊瑚红 / 乙海蓝 / 丙深赭黄 / 丁叶绿（纸雕玩家色，见 DESIGN-SPEC §3.1） */
+/**
+ * 玩家色：前 4 色沿用纸雕基准（DESIGN-SPEC §3.1），
+ * 文档 23 L-3 扩到 8 色支撑 4–8 人房间。后 4 色与前 4 色保持足够色相距离。
+ */
 export const PLAYER_HEX: Record<PlayerColor, string> = {
   red: '#C9503F',
   blue: '#3B6FA0',
   white: '#B4741D',
   orange: '#4C8B67',
+  purple: '#7A5A9E',
+  teal: '#2F8C8C',
+  pink: '#C2638A',
+  slate: '#5C6B7A',
 };
 
 /**
  * 屋顶首字：玩家身份的第二通道（不只靠颜色）。
- * 座位顺序 0..3 → 甲/乙/丙/丁，与原型一致。
+ * 文档 23 L-3：座位顺序 0..7 → 甲/乙/丙/丁/戊/己/庚/辛。
  */
 export const PLAYER_MARK: Record<PlayerColor, string> = {
   red: '甲', blue: '乙', white: '丙', orange: '丁',
+  purple: '戊', teal: '己', pink: '庚', slate: '辛',
 };
 
-/** 道路中心虚线纹理：玩家身份的第二通道（A 实线 / B 3 4 / C .5 4 / D 6 3） */
+/** 道路中心虚线纹理：玩家身份的第二通道；8 人时仍两两可区分 */
 export const ROAD_DASH: Record<PlayerColor, string> = {
   red: 'none', blue: '3 4', white: '.5 4', orange: '6 3',
+  purple: '1 5', teal: '8 2', pink: '2 2 6 2', slate: '10 4',
 };
 
 /** 浅色棋子的描边与文字要用深色，否则看不清（纸雕白棋已改深赭黄，仍保留判定） */

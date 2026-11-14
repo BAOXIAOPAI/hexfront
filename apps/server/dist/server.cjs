@@ -3744,7 +3744,16 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 // ../../packages/engine/src/types.ts
 var RESOURCES = ["wood", "brick", "sheep", "wheat", "ore"];
 var TERRAINS = [...RESOURCES, "desert"];
-var PLAYER_COLORS = ["red", "blue", "white", "orange"];
+var PLAYER_COLORS = [
+  "red",
+  "blue",
+  "white",
+  "orange",
+  "purple",
+  "teal",
+  "pink",
+  "slate"
+];
 function emptyResources() {
   return { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
 }
@@ -3829,6 +3838,16 @@ function buildGeometry(rows) {
   }
   return { tiles, tileKeys, vertices, vertexKeys, edges, edgeKeys };
 }
+function tilesAdjacent(geo, a, b) {
+  const ta = geo.tiles[a];
+  const tb = geo.tiles[b];
+  if (!ta || !tb) return false;
+  const du = Math.abs(ta.u - tb.u);
+  const dr = Math.abs(ta.row - tb.row);
+  if (dr === 0) return du === 2;
+  if (dr === 1) return du === 1;
+  return false;
+}
 function boundaryEdges(geo) {
   return geo.edgeKeys.filter((k) => geo.edges[k].tiles.length === 1);
 }
@@ -3897,7 +3916,11 @@ function computePorts(geo, count = 9) {
 function buildBoard(spec) {
   return { spec, geo: buildGeometry(spec.rows) };
 }
-function createGame(board, playerNames, colors, setupGrant = true) {
+function createGame(board, playerNames, colors, setupGrantOrOptions = true) {
+  const opts = typeof setupGrantOrOptions === "boolean" ? { setupGrant: setupGrantOrOptions } : setupGrantOrOptions;
+  const setupGrant = opts.setupGrant ?? true;
+  const n = playerNames.length;
+  const actionOrder = opts.actionOrder ? validateActionOrder(opts.actionOrder, n) : Array.from({ length: n }, (_, i) => i);
   const { geo, spec } = board;
   const tiles = {};
   for (const tk of geo.tileKeys) {
@@ -3906,13 +3929,14 @@ function createGame(board, playerNames, colors, setupGrant = true) {
     tiles[tk] = { key: tk, terrain: def.terrain, number: def.number };
   }
   const desert = geo.tileKeys.find((tk) => tiles[tk].terrain === "desert");
+  const specifiedRobber = spec.robberTile && tiles[spec.robberTile]?.terrain === "desert" ? spec.robberTile : void 0;
   return {
     mapId: spec.id,
     tiles,
-    ports: computePorts(geo),
+    ports: spec.ports ? spec.ports.map((p) => ({ ...p, port: { ...p.port } })) : computePorts(geo),
     buildings: {},
     roads: {},
-    robberTile: desert ?? geo.tileKeys[0],
+    robberTile: specifiedRobber ?? desert ?? geo.tileKeys[0],
     players: playerNames.map((name, i) => ({
       index: i,
       name,
@@ -3922,20 +3946,33 @@ function createGame(board, playerNames, colors, setupGrant = true) {
       playedKnights: 0,
       devPlayedThisTurn: false
     })),
-    current: 0,
+    current: actionOrder[0] ?? 0,
     phase: "setup",
     hasRolled: false,
     dice: null,
     devDeck: shuffle(makeDevDeck()),
     turn: 1,
-    setup: { step: 0, seat: 0 },
+    // 选地第一步由 actionOrder 的第一人开始（文档 23 L-4）
+    setup: { step: 0, seat: actionOrder[0] ?? 0 },
     winner: null,
     longestRoad: null,
     largestArmy: null,
     pendingDiscards: {},
     pendingRobber: false,
-    setupGrant
+    setupGrant,
+    actionOrder: actionOrder.slice()
   };
+}
+function validateActionOrder(order, n) {
+  if (order.length !== n) throw new Error("actionOrder \u957F\u5EA6\u4E0E\u73A9\u5BB6\u6570\u4E0D\u7B26");
+  const seen = /* @__PURE__ */ new Set();
+  for (const seat of order) {
+    if (!Number.isInteger(seat) || seat < 0 || seat >= n || seen.has(seat)) {
+      throw new Error("actionOrder \u5FC5\u987B\u662F 0..n-1 \u7684\u4E0D\u91CD\u590D\u6392\u5217");
+    }
+    seen.add(seat);
+  }
+  return order.slice();
 }
 function shuffle(input) {
   const arr = input.slice();
@@ -3956,8 +3993,8 @@ function makeDevDeck() {
   for (let i = 0; i < 2; i++) deck.push("roadbuilding");
   return deck;
 }
-function setupSeatOrder(playerCount) {
-  const forward = Array.from({ length: playerCount }, (_, i) => i);
+function setupSeatOrder(playerCount, actionOrder) {
+  const forward = actionOrder ? Array.from(actionOrder) : Array.from({ length: playerCount }, (_, i) => i);
   return [...forward, ...forward.slice().reverse()];
 }
 function handSize(player) {
@@ -3982,6 +4019,254 @@ function countBuildings(state, player) {
   return { villages, cities, roads };
 }
 
+// ../../packages/engine/src/mapgen.ts
+var MAP_GENERATOR_VERSION = 1;
+var DEFAULT_SEARCH_BUDGET = 400;
+function hashSeed(seed) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+function makeRng(seed) {
+  let a = hashSeed(seed) || 2654435769;
+  return () => {
+    a = a + 1831565813 >>> 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function shuffled(input, rng) {
+  const out = input.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+var SPECIFIC = (resource) => ({ kind: "specific", resource });
+var GENERIC = { kind: "generic" };
+var BASE_RECIPE = {
+  id: "base-4p",
+  label: "\u6807\u51C6\u76D8 \xB7 19 \u683C",
+  rows: [3, 4, 5, 4, 3],
+  terrains: { wood: 4, brick: 3, sheep: 4, wheat: 4, ore: 3, desert: 1 },
+  numbers: { 2: 1, 3: 2, 4: 2, 5: 2, 6: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 1 },
+  portCount: 9,
+  ports: [
+    GENERIC,
+    SPECIFIC("wood"),
+    GENERIC,
+    SPECIFIC("brick"),
+    GENERIC,
+    SPECIFIC("sheep"),
+    GENERIC,
+    SPECIFIC("wheat"),
+    SPECIFIC("ore")
+  ]
+};
+var EXT_RECIPE = {
+  id: "ext-6p",
+  label: "\u6269\u5C55\u76D8 \xB7 30 \u683C",
+  rows: [3, 4, 5, 6, 5, 4, 3],
+  terrains: { wood: 6, brick: 5, sheep: 6, wheat: 6, ore: 5, desert: 2 },
+  numbers: { 2: 2, 3: 3, 4: 3, 5: 3, 6: 3, 8: 3, 9: 3, 10: 3, 11: 3, 12: 2 },
+  portCount: 11,
+  ports: [
+    GENERIC,
+    GENERIC,
+    GENERIC,
+    GENERIC,
+    GENERIC,
+    SPECIFIC("wood"),
+    SPECIFIC("brick"),
+    SPECIFIC("sheep"),
+    SPECIFIC("sheep"),
+    SPECIFIC("wheat"),
+    SPECIFIC("ore")
+  ]
+};
+function recipeFor(kind) {
+  return kind === "base" ? BASE_RECIPE : EXT_RECIPE;
+}
+function fixedPortSlots(geo, count) {
+  const boundary = boundaryEdges(geo);
+  const withAngle = boundary.map((ek) => {
+    const e = geo.edges[ek];
+    const va = geo.vertices[e.a];
+    const vb = geo.vertices[e.b];
+    const mx = (va.x + vb.x) / 2;
+    const my = (va.y + vb.y) / 2;
+    return { ek, angle: Math.atan2(my, mx) };
+  });
+  withAngle.sort((p, q) => p.angle - q.angle);
+  const slots = [];
+  for (let k = 0; k < count; k++) {
+    const pick = withAngle[Math.round(k * withAngle.length / count) % withAngle.length];
+    slots.push(pick.ek);
+  }
+  return slots;
+}
+var RED = /* @__PURE__ */ new Set([6, 8]);
+function expandBag(numbers) {
+  const out = [];
+  for (const [num, c] of Object.entries(numbers)) {
+    for (let i = 0; i < c; i++) out.push(Number(num));
+  }
+  return out;
+}
+function assignNumbers(geo, productionTiles, bag, rng, budget) {
+  const reds = bag.filter((n) => RED.has(n));
+  const others = bag.filter((n) => !RED.has(n));
+  for (let attempt = 1; attempt <= budget; attempt++) {
+    const pool = shuffled(productionTiles, rng);
+    const chosen = [];
+    let ok = true;
+    for (const tk of pool) {
+      if (chosen.length === reds.length) break;
+      if (chosen.every((c) => !tilesAdjacent(geo, tk, c))) chosen.push(tk);
+    }
+    if (chosen.length !== reds.length) {
+      ok = false;
+    }
+    if (ok) {
+      const assignment = /* @__PURE__ */ new Map();
+      const shuffledReds = shuffled(reds, rng);
+      chosen.forEach((tk, i) => assignment.set(tk, shuffledReds[i]));
+      const rest = productionTiles.filter((tk) => !assignment.has(tk));
+      const shuffledOthers = shuffled(others, rng);
+      rest.forEach((tk, i) => assignment.set(tk, shuffledOthers[i]));
+      return { assignment, attempts: attempt };
+    }
+  }
+  return null;
+}
+function generateMap(config) {
+  const recipe = recipeFor(config.kind);
+  const budget = config.searchBudget ?? DEFAULT_SEARCH_BUDGET;
+  const version = config.generatorVersion ?? MAP_GENERATOR_VERSION;
+  const rng = makeRng(`${version}|${config.kind}|${config.seed}`);
+  const geo = buildGeometry(recipe.rows);
+  const tileKeys = geo.tileKeys;
+  const terrainBag = [];
+  for (const [t, c] of Object.entries(recipe.terrains)) {
+    for (let i = 0; i < c; i++) terrainBag.push(t);
+  }
+  const numberBag = expandBag(recipe.numbers);
+  const desertCount = recipe.terrains.desert ?? 0;
+  if (terrainBag.length !== tileKeys.length) {
+    return { ok: false, reason: "BAD_CONFIG", attempts: 0 };
+  }
+  if (numberBag.length !== tileKeys.length - desertCount) {
+    return { ok: false, reason: "BAD_CONFIG", attempts: 0 };
+  }
+  if (recipe.ports.length !== recipe.portCount) {
+    return { ok: false, reason: "BAD_CONFIG", attempts: 0 };
+  }
+  const shuffledTerrains = shuffled(terrainBag, rng);
+  const tiles = {};
+  const productionTiles = [];
+  const deserts = [];
+  tileKeys.forEach((tk, i) => {
+    const terrain = shuffledTerrains[i];
+    tiles[tk] = { terrain, number: null };
+    if (terrain === "desert") deserts.push(tk);
+    else productionTiles.push(tk);
+  });
+  const numbered = assignNumbers(geo, productionTiles, numberBag, rng, budget);
+  if (!numbered) {
+    return { ok: false, reason: "SEARCH_EXHAUSTED", attempts: budget };
+  }
+  for (const [tk, num] of numbered.assignment) tiles[tk].number = num;
+  const slots = fixedPortSlots(geo, recipe.portCount);
+  if (slots.length !== recipe.portCount) {
+    return { ok: false, reason: "BAD_CONFIG", attempts: numbered.attempts };
+  }
+  const portTypes = shuffled(recipe.ports, rng);
+  const ports = slots.map((edge, i) => ({ edge, port: portTypes[i] }));
+  const robberTile = deserts.length > 0 ? deserts[Math.floor(makeRng(`robber|${version}|${config.seed}`)() * deserts.length)] : tileKeys[0];
+  return {
+    ok: true,
+    attempts: numbered.attempts,
+    spec: {
+      id: recipe.id,
+      label: recipe.label,
+      rows: recipe.rows.slice(),
+      tiles,
+      ports,
+      robberTile,
+      seed: config.seed,
+      generatorVersion: version
+    }
+  };
+}
+function validateMap(spec) {
+  const recipe = spec.id === EXT_RECIPE.id ? EXT_RECIPE : BASE_RECIPE;
+  const geo = buildGeometry(spec.rows);
+  const problems = [];
+  if (geo.tileKeys.length !== Object.keys(spec.tiles).length) {
+    problems.push("\u5730\u5757\u6570\u91CF\u4E0E\u51E0\u4F55\u4E0D\u7B26");
+  }
+  const terrainCount = /* @__PURE__ */ new Map();
+  const numberCount = /* @__PURE__ */ new Map();
+  for (const tk of geo.tileKeys) {
+    const def = spec.tiles[tk];
+    if (!def) {
+      problems.push(`\u7F3A\u5C11\u5730\u5757 ${tk}`);
+      continue;
+    }
+    terrainCount.set(def.terrain, (terrainCount.get(def.terrain) ?? 0) + 1);
+    if (def.terrain === "desert") {
+      if (def.number !== null) problems.push(`\u6C99\u6F20 ${tk} \u4E0D\u5E94\u6709\u6570\u5B57`);
+    } else {
+      if (def.number === null) problems.push(`\u751F\u4EA7\u5730\u5757 ${tk} \u7F3A\u5C11\u6570\u5B57`);
+      else numberCount.set(def.number, (numberCount.get(def.number) ?? 0) + 1);
+    }
+  }
+  for (const [t, c] of Object.entries(recipe.terrains)) {
+    if ((terrainCount.get(t) ?? 0) !== c) {
+      problems.push(`\u5730\u5F62 ${t} \u6570\u91CF\u4E0D\u7B26\uFF1A\u671F\u671B ${c}\uFF0C\u5B9E\u9645 ${terrainCount.get(t) ?? 0}`);
+    }
+  }
+  for (const [n, c] of Object.entries(recipe.numbers)) {
+    if ((numberCount.get(Number(n)) ?? 0) !== c) {
+      problems.push(`\u6570\u5B57 ${n} \u6570\u91CF\u4E0D\u7B26\uFF1A\u671F\u671B ${c}\uFF0C\u5B9E\u9645 ${numberCount.get(Number(n)) ?? 0}`);
+    }
+  }
+  const redTiles = geo.tileKeys.filter((tk) => {
+    const n = spec.tiles[tk]?.number;
+    return n === 6 || n === 8;
+  });
+  for (let i = 0; i < redTiles.length; i++) {
+    for (let j = i + 1; j < redTiles.length; j++) {
+      if (tilesAdjacent(geo, redTiles[i], redTiles[j])) {
+        problems.push(`\u7EA2\u70B9\u76F8\u90BB\uFF1A${redTiles[i]} \u4E0E ${redTiles[j]}`);
+      }
+    }
+  }
+  if (spec.ports) {
+    const slots = fixedPortSlots(geo, recipe.portCount);
+    const slotSet = new Set(slots);
+    for (const p of spec.ports) {
+      if (!slotSet.has(p.edge)) problems.push(`\u6E2F\u53E3\u69FD\u4F4D\u975E\u6CD5\uFF1A${p.edge}`);
+    }
+    if (spec.ports.length !== recipe.portCount) problems.push("\u6E2F\u53E3\u6570\u91CF\u4E0D\u7B26");
+    const generic = spec.ports.filter((p) => p.port.kind === "generic").length;
+    if (generic !== recipe.ports.filter((p) => p.kind === "generic").length) {
+      problems.push("\u901A\u7528\u6E2F\u6570\u91CF\u4E0D\u7B26");
+    }
+  }
+  if (spec.robberTile) {
+    const def = spec.tiles[spec.robberTile];
+    if (!def || def.terrain !== "desert") problems.push("\u5F3A\u76D7\u8D77\u70B9\u4E0D\u662F\u5F53\u524D\u5730\u56FE\u7684\u6C99\u6F20");
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 // ../../packages/engine/src/rules/setup.ts
 function placeSettlement(board, state, cmd) {
   if (state.phase !== "setup" || !state.setup) {
@@ -4004,7 +4289,7 @@ function placeSettlement(board, state, cmd) {
   }
   if (state.roads[cmd.edge] !== void 0) return { ok: false, reason: "EDGE_TAKEN" };
   const next = structuredClone(state);
-  const order = setupSeatOrder(next.players.length);
+  const order = setupSeatOrder(next.players.length, next.actionOrder);
   const round = next.setup.step < next.players.length ? 1 : 2;
   next.buildings[cmd.vertex] = { owner: cmd.seat, city: false };
   next.roads[cmd.edge] = cmd.seat;
@@ -4029,10 +4314,11 @@ function placeSettlement(board, state, cmd) {
   if (next.setup.step >= order.length) {
     next.phase = "play";
     next.setup = null;
-    next.current = 0;
+    const first = next.actionOrder[0] ?? 0;
+    next.current = first;
     next.hasRolled = false;
-    events.push({ type: "SETUP_COMPLETED", firstPlayer: 0 });
-    events.push({ type: "TURN_BEGUN", player: 0, turn: next.turn });
+    events.push({ type: "SETUP_COMPLETED", firstPlayer: first });
+    events.push({ type: "TURN_BEGUN", player: first, turn: next.turn });
   } else {
     next.setup.seat = order[next.setup.step];
   }
@@ -4248,7 +4534,9 @@ function endTurn(state, seat) {
   if (!state.hasRolled) return { ok: false, reason: "NOT_YET_ROLLED" };
   const next = structuredClone(state);
   const ending = next.current;
-  next.current = (next.current + 1) % next.players.length;
+  const order = next.actionOrder.length === next.players.length ? next.actionOrder : Array.from({ length: next.players.length }, (_, i) => i);
+  const pos = order.indexOf(ending);
+  next.current = order[(pos + 1) % order.length] ?? order[0] ?? 0;
   next.hasRolled = false;
   next.dice = null;
   next.turn += 1;
@@ -4563,26 +4851,36 @@ function findWinner(state) {
 }
 
 // ../../packages/engine/src/rules/trade.ts
+var BANK_RATIO = 4;
+var GENERIC_PORT_RATIO = 3;
+var SPECIFIC_PORT_RATIO = 2;
 function total(count) {
   if (!count) return 0;
   let sum = 0;
   for (const r of RESOURCES) sum += count[r] ?? 0;
   return sum;
 }
-function portRatioFor(board, state, player, resource) {
-  let ratio = 4;
-  for (const slot of state.ports) {
-    const edge = board.geo.edges[slot.edge];
-    if (!edge) continue;
-    const ownsHere = state.buildings[edge.a]?.owner === player || state.buildings[edge.b]?.owner === player;
-    if (!ownsHere) continue;
-    if (slot.port.kind === "generic") {
-      ratio = Math.min(ratio, 3);
-    } else if (slot.port.resource === resource) {
-      ratio = Math.min(ratio, 2);
-    }
+function cleanBag(raw) {
+  const out = {};
+  for (const r of RESOURCES) {
+    const n = raw[r];
+    if (n === void 0 || n === 0) continue;
+    if (typeof n !== "number" || !Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+    out[r] = n;
   }
-  return ratio;
+  return out;
+}
+function ownedPort(board, state, player, portEdge) {
+  const slot = state.ports.find((p) => p.edge === portEdge);
+  if (!slot) return null;
+  const edge = board.geo.edges[portEdge];
+  if (!edge) return null;
+  const ownsHere = [edge.a, edge.b].some((vk) => {
+    const b = state.buildings[vk];
+    return !!b && b.owner === player;
+  });
+  if (!ownsHere) return null;
+  return slot.port.kind === "generic" ? { kind: "generic" } : { kind: "specific", resource: slot.port.resource };
 }
 function tradePlayer(board, state, cmd) {
   if (state.phase !== "play") return { ok: false, reason: "WRONG_PHASE" };
@@ -4622,49 +4920,60 @@ function tradePlayer(board, state, cmd) {
   return { ok: true, state: next, events };
 }
 function tradeBank(board, state, cmd) {
+  void board;
   if (state.phase !== "play") return { ok: false, reason: "WRONG_PHASE" };
   if (cmd.seat !== state.current) return { ok: false, reason: "NOT_YOUR_TURN" };
   if (cmd.give === cmd.get) return { ok: false, reason: "SAME_TARGET" };
+  if (!RESOURCES.includes(cmd.give) || !RESOURCES.includes(cmd.get)) {
+    return { ok: false, reason: "INVALID_TARGET" };
+  }
   const player = state.players[cmd.seat];
   if (!player) return { ok: false, reason: "INVALID_TARGET" };
-  const ratio = portRatioFor(board, state, cmd.seat, cmd.give);
-  if (player.resources[cmd.give] < ratio) {
+  if (player.resources[cmd.give] < BANK_RATIO) {
     return { ok: false, reason: "INSUFFICIENT_RESOURCES" };
   }
   const next = structuredClone(state);
   const p = next.players[cmd.seat];
-  p.resources[cmd.give] -= ratio;
+  p.resources[cmd.give] -= BANK_RATIO;
   p.resources[cmd.get] += 1;
   const events = [
-    { type: "BANK_TRADED", player: cmd.seat, give: cmd.give, get: cmd.get, ratio }
+    { type: "BANK_TRADED", player: cmd.seat, give: cmd.give, get: cmd.get, ratio: BANK_RATIO }
   ];
   return { ok: true, state: next, events };
 }
-function portTransfer(board, state, cmd) {
+function tradePort(board, state, cmd) {
   if (state.phase !== "play") return { ok: false, reason: "WRONG_PHASE" };
   if (cmd.seat !== state.current) return { ok: false, reason: "NOT_YOUR_TURN" };
-  if (cmd.give === cmd.get) return { ok: false, reason: "SAME_TARGET" };
-  const beneficiary = state.players[cmd.beneficiary];
-  if (!beneficiary || cmd.beneficiary === cmd.seat) {
-    return { ok: false, reason: "INVALID_TARGET" };
+  if (!RESOURCES.includes(cmd.get)) return { ok: false, reason: "INVALID_TARGET" };
+  const player = state.players[cmd.seat];
+  if (!player) return { ok: false, reason: "INVALID_TARGET" };
+  const give = cleanBag(cmd.give ?? {});
+  if (!give) return { ok: false, reason: "BAD_PORT" };
+  const port2 = ownedPort(board, state, cmd.seat, cmd.port);
+  if (!port2) return { ok: false, reason: "NO_PORT" };
+  const need = port2.kind === "generic" ? GENERIC_PORT_RATIO : SPECIFIC_PORT_RATIO;
+  if (total(give) !== need) return { ok: false, reason: "BAD_PORT" };
+  if (port2.kind === "specific") {
+    const keys = RESOURCES.filter((r) => (give[r] ?? 0) > 0);
+    if (keys.length !== 1 || keys[0] !== port2.resource) return { ok: false, reason: "BAD_PORT" };
   }
-  const ratio = portRatioFor(board, state, cmd.seat, cmd.give);
-  if (ratio === 4) return { ok: false, reason: "NO_PORT" };
-  if (beneficiary.resources[cmd.give] < ratio) {
-    return { ok: false, reason: "INSUFFICIENT_RESOURCES" };
+  for (const r of RESOURCES) {
+    if (player.resources[r] < (give[r] ?? 0)) {
+      return { ok: false, reason: "INSUFFICIENT_RESOURCES" };
+    }
   }
   const next = structuredClone(state);
-  const ben = next.players[cmd.beneficiary];
-  ben.resources[cmd.give] -= ratio;
-  ben.resources[cmd.get] += 1;
+  const p = next.players[cmd.seat];
+  for (const r of RESOURCES) p.resources[r] -= give[r] ?? 0;
+  p.resources[cmd.get] += 1;
   const events = [
     {
-      type: "PORT_TRANSFERRED",
-      executor: cmd.seat,
-      beneficiary: cmd.beneficiary,
-      give: cmd.give,
+      type: "PORT_TRADED",
+      player: cmd.seat,
+      port: cmd.port,
+      give,
       get: cmd.get,
-      ratio
+      ratio: need
     }
   ];
   return { ok: true, state: next, events };
@@ -4697,8 +5006,8 @@ function dispatch(board, state, cmd) {
       return tradePlayer(board, state, cmd);
     case "TRADE_BANK":
       return tradeBank(board, state, cmd);
-    case "PORT_TRANSFER":
-      return portTransfer(board, state, cmd);
+    case "TRADE_PORT":
+      return tradePort(board, state, cmd);
     case "DISCARD":
       return discardCards(board, state, cmd);
     case "MOVE_ROBBER":
@@ -4830,20 +5139,30 @@ function viewFor(board, state, viewer) {
     setup: state.setup ? { ...state.setup } : null,
     // 只把「谁还欠几张」带出去，弃了哪几种资源不进视图
     pendingDiscards: Object.entries(state.pendingDiscards).map(([seat, count]) => ({ player: Number(seat), count })).sort((a, b) => a.player - b.player),
-    pendingRobber: state.pendingRobber
+    pendingRobber: state.pendingRobber,
+    actionOrder: state.actionOrder.slice(),
+    mapId: state.mapId
   };
 }
 
 // ../../packages/protocol/src/index.ts
-var PROTOCOL_VERSION = 2;
+var PROTOCOL_VERSION = 4;
 var OFFER_TTL_MS = 1e4;
 var OFFER_SEND_COOLDOWN_MS = 3e3;
+var SETUP_STEP_MS = 18e4;
+var HOST_GRACE_MS = 6e4;
+var MIN_PLAYERS = 4;
+var MAX_PLAYERS = 8;
 var DEFAULT_SETTINGS = { setupGrant: true };
 function encode(msg) {
   return JSON.stringify(msg);
 }
 function optionalRid(raw) {
   return typeof raw.rid === "string" && raw.rid.length > 0 && raw.rid.length <= 64 ? { rid: raw.rid } : {};
+}
+function optionalConfigVersion(raw) {
+  const v = raw.configVersion;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? { configVersion: Math.floor(v) } : {};
 }
 function decodeClientMessage(raw) {
   let parsed;
@@ -4855,6 +5174,19 @@ function decodeClientMessage(raw) {
   if (typeof parsed !== "object" || parsed === null) return null;
   const obj = parsed;
   const t = obj.t;
+  if (t === "CREATE") {
+    const roomId = obj.roomId;
+    const name = obj.name;
+    const v = typeof obj.v === "number" ? obj.v : void 0;
+    const p = obj.players;
+    return {
+      t: "CREATE",
+      roomId: typeof roomId === "string" ? roomId : "main",
+      name: typeof name === "string" ? name : "",
+      ...v === void 0 ? {} : { v },
+      ...typeof p === "number" && Number.isFinite(p) ? { players: Math.floor(p) } : {}
+    };
+  }
   if (t === "JOIN") {
     const roomId = obj.roomId;
     const name = obj.name;
@@ -4871,7 +5203,25 @@ function decodeClientMessage(raw) {
     if (typeof setupGrant !== "boolean") return null;
     return { t: "SET_SETTINGS", setupGrant };
   }
-  if (t === "START") return { t: "START" };
+  if (t === "SET_PLAYER_COUNT") {
+    const n = obj.targetPlayers;
+    if (typeof n !== "number" || !Number.isFinite(n)) return null;
+    return { t: "SET_PLAYER_COUNT", targetPlayers: Math.floor(n), ...optionalConfigVersion(obj) };
+  }
+  if (t === "SET_BOARD") {
+    if (obj.board !== "base" && obj.board !== "ext") return null;
+    return { t: "SET_BOARD", board: obj.board, ...optionalConfigVersion(obj) };
+  }
+  if (t === "REROLL_MAP") return { t: "REROLL_MAP", ...optionalConfigVersion(obj) };
+  if (t === "READY") return typeof obj.ready === "boolean" ? { t: "READY", ready: obj.ready } : null;
+  if (t === "SET_ORDER") {
+    if (!Array.isArray(obj.order) || !obj.order.every((x) => typeof x === "number" && Number.isInteger(x))) {
+      return null;
+    }
+    return { t: "SET_ORDER", order: obj.order, ...optionalConfigVersion(obj) };
+  }
+  if (t === "RANDOMIZE_ORDER") return { t: "RANDOMIZE_ORDER", ...optionalConfigVersion(obj) };
+  if (t === "START") return { t: "START", ...optionalConfigVersion(obj) };
   if (t === "COMMAND") {
     const cmd = obj.cmd;
     if (typeof cmd !== "object" || cmd === null) return null;
@@ -4925,10 +5275,32 @@ function countOf(res) {
   for (const r of RESOURCES) sum += res[r] ?? 0;
   return sum;
 }
+function recommendedBoard(players) {
+  return players <= 5 ? "base" : "ext";
+}
+function snapshotOf(spec, kind, boardVersion) {
+  return {
+    kind,
+    rows: spec.rows.slice(),
+    tiles: Object.entries(spec.tiles).map(([key, t]) => ({
+      key,
+      terrain: t.terrain,
+      number: t.number
+    })),
+    ports: (spec.ports ?? []).map((p) => ({
+      edge: p.edge,
+      port: p.port.kind === "generic" ? { kind: "generic" } : { kind: "specific", resource: p.port.resource }
+    })),
+    robberTile: spec.robberTile ?? "",
+    seed: spec.seed ?? "",
+    generatorVersion: spec.generatorVersion ?? MAP_GENERATOR_VERSION,
+    boardVersion
+  };
+}
 var Room = class {
   id;
+  /** 当前棋盘；产品路径由地图生成器构造，开局后锁定 */
   board;
-  capacity;
   /** null = 还在等待开局 */
   game = null;
   members = [];
@@ -4943,14 +5315,65 @@ var Room = class {
   /** 座位 → 下次允许发送报价的服务端时间；重连不清除 */
   cooldown = /* @__PURE__ */ new Map();
   now;
+  // ---- 文档 23 新增状态 ----
+  minPlayers;
+  autoStartOnFull;
+  skipReadyCheck;
+  fixtureSeed;
+  /** F2 测试夹具：注入地图生成失败；产品为 null */
+  mapFactory;
+  targetPlayers;
+  boardKind;
+  boardChoice = "auto";
+  hostSeat = null;
+  configVersion = 1;
+  actionOrder = [];
+  changedBy = -1;
+  changeReason = "INIT";
+  mapSnapshot;
+  /** 房主断线时刻；null 表示房主在线或尚未有房主 */
+  hostDisconnectedAt = null;
+  /** 当前选地步骤的权威截止时间；null 表示不在 setup 阶段 */
+  setupDeadline = null;
   /** 房间级规则设置：只在开局前可改，开局后锁定到整局结束 */
   settings = { ...DEFAULT_SETTINGS };
   constructor(id, opts = {}) {
     this.id = id;
-    this.board = opts.board ?? buildBoard(MAP_4P);
-    const cap = opts.capacity ?? 4;
-    this.capacity = Math.max(2, Math.min(PLAYER_COLORS.length, Math.floor(cap)));
+    this.minPlayers = opts.minPlayers ?? MIN_PLAYERS;
+    this.autoStartOnFull = opts.autoStartOnFull ?? false;
+    this.skipReadyCheck = opts.skipReadyCheck ?? false;
+    this.fixtureSeed = opts.seed;
+    this.mapFactory = opts.mapFactory ?? null;
     this.now = opts.now ?? (() => Date.now());
+    const cap = opts.capacity ?? MIN_PLAYERS;
+    this.targetPlayers = Math.max(2, Math.min(MAX_PLAYERS, Math.floor(cap)));
+    this.boardKind = opts.board ? "base" : recommendedBoard(this.targetPlayers);
+    if (opts.board) {
+      this.board = opts.board;
+      const spec = {
+        ...opts.board.spec,
+        seed: opts.board.spec.seed ?? `fixture-${id}`,
+        generatorVersion: opts.board.spec.generatorVersion ?? MAP_GENERATOR_VERSION,
+        robberTile: opts.board.spec.robberTile,
+        ports: opts.board.spec.ports
+      };
+      this.mapSnapshot = snapshotOf(spec, "base", this.configVersion);
+    } else {
+      const seed = this.fixtureSeed ?? `${id}:${this.configVersion}:${Math.floor(this.now())}`;
+      const generated = generateMap({ kind: this.boardKind, seed });
+      if (!generated.ok || !generated.spec) {
+        const fallback = {
+          ...MAP_4P,
+          seed: `fallback-${id}`,
+          generatorVersion: MAP_GENERATOR_VERSION
+        };
+        this.board = buildBoard(fallback);
+        this.mapSnapshot = snapshotOf(fallback, "base", this.configVersion);
+      } else {
+        this.board = buildBoard(generated.spec);
+        this.mapSnapshot = snapshotOf(generated.spec, this.boardKind, this.configVersion);
+      }
+    }
   }
   // -------------------------------------------------------------------------
   // 只读
@@ -4969,15 +5392,59 @@ var Room = class {
   get version() {
     return this.seq;
   }
+  /** 目标人数即本局容量（文档 23 L-0 E：房主开局前一次性设定） */
+  get capacity() {
+    return this.targetPlayers;
+  }
   get roomSettings() {
     return { ...this.settings };
   }
   get settingsLocked() {
     return this.game !== null;
   }
+  get map() {
+    return this.mapSnapshot;
+  }
+  get currentTimer() {
+    return this.setupDeadline ? { ...this.setupDeadline, serverTime: this.now() } : null;
+  }
+  /** 供 WELCOME 使用的大厅权威配置 */
+  lobbyConfig() {
+    return {
+      hostSeat: this.hostSeat ?? -1,
+      targetPlayers: this.targetPlayers,
+      board: this.boardKind,
+      boardChoice: this.boardChoice,
+      recommendedBoard: recommendedBoard(this.targetPlayers),
+      configVersion: this.configVersion,
+      actionOrder: this.actionOrder.slice(),
+      ready: this.members.map((m) => m.ready),
+      changedBy: this.changedBy,
+      changeReason: this.changeReason,
+      canStart: this.startBlockReason() === null,
+      startBlockReason: this.startBlockReason()
+    };
+  }
+  /** 服务端权威判断：为什么现在不能开始 */
+  startBlockReason() {
+    if (this.game) return "GAME_ALREADY_STARTED";
+    if (this.targetPlayers < this.minPlayers) return "NOT_ENOUGH_PLAYERS";
+    if (this.members.length !== this.targetPlayers) return "NOT_ENOUGH_PLAYERS";
+    for (const m of this.members) {
+      if (!m.connected) return "PLAYERS_OFFLINE";
+    }
+    if (!this.skipReadyCheck) {
+      for (const m of this.members) {
+        if (!m.ready) return "NOT_ALL_READY";
+      }
+    }
+    if (this.mapSnapshot.tiles.length === 0) return "BOARD_NOT_READY";
+    return null;
+  }
   /** 开局前改设置；已开局一律拒绝，避免打一半改规则 */
-  setSettings(patch) {
+  setSettings(patch, seat) {
     if (this.settingsLocked) return false;
+    if (seat !== void 0 && seat !== this.hostSeat) return false;
     if (typeof patch.setupGrant === "boolean") this.settings.setupGrant = patch.setupGrant;
     return true;
   }
@@ -4986,7 +5453,12 @@ var Room = class {
     this.sendAll({ t: "SETTINGS", settings: this.roomSettings, locked: this.settingsLocked });
   }
   lobbyPlayers() {
-    return this.members.map((m) => ({ seat: m.seat, name: m.name, connected: m.connected }));
+    return this.members.map((m) => ({
+      seat: m.seat,
+      name: m.name,
+      connected: m.connected,
+      ready: m.ready
+    }));
   }
   seatOfName(name) {
     const clean = name.trim();
@@ -5002,14 +5474,193 @@ var Room = class {
     return viewFor(this.board, this.game, seat);
   }
   // -------------------------------------------------------------------------
+  // 配置：房主权限、版本、清准备
+  // -------------------------------------------------------------------------
+  isHost(seat) {
+    return this.hostSeat === seat && this.isSeated(seat);
+  }
+  rejectTo(seat, reason, detail) {
+    this.sendTo(seat, { t: "REJECT", reason, ...detail ? { detail } : {} });
+  }
+  versionMatches(expected) {
+    return expected === void 0 || expected === this.configVersion;
+  }
+  /** 任何配置变化：递增版本、清空全员准备、记录操作者，并广播权威快照 */
+  bumpConfig(seat, reason) {
+    this.configVersion += 1;
+    this.changedBy = seat;
+    this.changeReason = reason;
+    for (const m of this.members) m.ready = false;
+    this.mapSnapshot = { ...this.mapSnapshot, boardVersion: this.configVersion };
+  }
+  /**
+   * F2：尝试生成一张合法地图，返回待提交的 (board, snapshot)。
+   * 纯「先算后提交」：失败时调用方可以完全不碰状态，绝不留下
+   * 「配置是扩展盘、实际棋盘还是标准盘」的半提交状态。
+   * 测试可替换本方法注入生成失败，验证完整回滚。
+   */
+  tryGenerateMap(kind, version, reason) {
+    if (this.mapFactory) return this.mapFactory(kind, version, reason);
+    const seed = `${this.id}:${version}:${Math.floor(this.now())}:${reason}`;
+    const generated = generateMap({ kind, seed });
+    if (!generated.ok || !generated.spec) return null;
+    const check = validateMap(generated.spec);
+    if (!check.ok) return null;
+    return {
+      board: buildBoard(generated.spec),
+      snapshot: snapshotOf(generated.spec, kind, version)
+    };
+  }
+  /**
+   * F2：原子提交一次配置变更。
+   * 先把地图算好（可能失败），成功后才一次性写入 targetPlayers / boardKind /
+   * boardChoice / configVersion / ready / board / mapSnapshot / actionOrder，
+   * 最后广播同一份权威 lobby+map 快照。任何一步失败都不修改任何状态。
+   */
+  commitConfig(opts) {
+    const nextPlayers = opts.targetPlayers ?? this.targetPlayers;
+    const nextKind = opts.boardKind ?? this.boardKind;
+    const nextChoice = opts.boardChoice ?? this.boardChoice;
+    const nextVersion = this.configVersion + 1;
+    let board = this.board;
+    let snapshot;
+    if (opts.regenerate) {
+      const made = this.tryGenerateMap(nextKind, nextVersion, opts.reason);
+      if (!made) return { ok: false, reason: "BOARD_NOT_READY" };
+      board = made.board;
+      snapshot = made.snapshot;
+    } else {
+      snapshot = { ...this.mapSnapshot, boardVersion: nextVersion };
+    }
+    this.targetPlayers = nextPlayers;
+    this.boardKind = nextKind;
+    this.boardChoice = nextChoice;
+    this.configVersion = nextVersion;
+    this.changedBy = opts.seat;
+    this.changeReason = opts.reason;
+    for (const m of this.members) m.ready = false;
+    this.board = board;
+    this.mapSnapshot = snapshot;
+    this.syncOrderToSeats();
+    this.broadcastLobbyConfig(opts.reason);
+    return { ok: true };
+  }
+  checkConfigAuthority(seat, configVersion) {
+    if (this.settingsLocked) return { ok: false, reason: "GAME_ALREADY_STARTED" };
+    if (!this.isHost(seat)) return { ok: false, reason: "NOT_HOST" };
+    if (!this.versionMatches(configVersion)) return { ok: false, reason: "CONFIG_VERSION_MISMATCH" };
+    return null;
+  }
+  /**
+   * F2 意图一：设定目标人数。
+   * - 人数改变先应用推荐地图（6–8 扩展 / 4–5 标准），并把 boardChoice 重置为 auto；
+   *   房主随后仍可用 applyBoard 明确改选（"保留手动改选权"）。
+   * - 仅重新提交相同人数：不递增版本、不洗地图、不清准备（不无故洗牌）。
+   * - 地图生成失败：返回 BOARD_NOT_READY，配置与地图完整回滚。
+   */
+  applyPlayerCount(seat, targetPlayers, configVersion) {
+    const denied = this.checkConfigAuthority(seat, configVersion);
+    if (denied) return denied;
+    if (!Number.isInteger(targetPlayers) || targetPlayers < this.minPlayers || targetPlayers > MAX_PLAYERS) {
+      return { ok: false, reason: "BAD_PLAYER_COUNT" };
+    }
+    if (targetPlayers < this.members.length) return { ok: false, reason: "BAD_PLAYER_COUNT" };
+    if (targetPlayers === this.targetPlayers) return { ok: true };
+    const nextKind = recommendedBoard(targetPlayers);
+    return this.commitConfig({
+      seat,
+      reason: "SET_PLAYER_COUNT",
+      targetPlayers,
+      boardKind: nextKind,
+      boardChoice: "auto",
+      // 推荐盘变化时必须重抽，保证「配置是扩展盘、实际也是扩展盘」
+      regenerate: nextKind !== this.boardKind
+    });
+  }
+  /** F2 意图二：房主明确手选地图（标记 manual，之后人数改变会重新应用推荐） */
+  applyBoard(seat, board, configVersion) {
+    const denied = this.checkConfigAuthority(seat, configVersion);
+    if (denied) return denied;
+    if (board !== "base" && board !== "ext") return { ok: false, reason: "BAD_BOARD" };
+    return this.commitConfig({
+      seat,
+      reason: "SET_BOARD",
+      boardKind: board,
+      boardChoice: "manual",
+      regenerate: board !== this.boardKind
+    });
+  }
+  /**
+   * 兼容旧测试夹具的内部包装：产品协议已把人数与地图拆成两条消息，
+   * 这里按「谁有值」转发到新意图，避免旧断言大面积改写。
+   */
+  configure(seat, patch, configVersion) {
+    if (patch.board !== void 0) return this.applyBoard(seat, patch.board, configVersion);
+    if (patch.targetPlayers !== void 0) return this.applyPlayerCount(seat, patch.targetPlayers, configVersion);
+    return { ok: true };
+  }
+  /** 房主重抽地图：槽位固定、类型洗牌、seed 变化，全员看到同一份；失败完整回滚 */
+  rerollMap(seat, configVersion) {
+    const denied = this.checkConfigAuthority(seat, configVersion);
+    if (denied) return denied;
+    return this.commitConfig({ seat, reason: "REROLL_MAP", regenerate: true });
+  }
+  /** 玩家设置自己的准备态；昵称/在线状态更新不会无故清准备 */
+  setReady(seat, ready) {
+    if (this.settingsLocked) return { ok: false, reason: "GAME_ALREADY_STARTED" };
+    const m = this.members.find((x) => x.seat === seat);
+    if (!m) return { ok: false, reason: "NOT_SEATED" };
+    m.ready = ready;
+    this.broadcastLobbyConfig("READY");
+    return { ok: true };
+  }
+  /** 房主手动调整完整蛇形顺序（seat 的排列） */
+  setOrder(seat, order, configVersion) {
+    if (this.settingsLocked) return { ok: false, reason: "GAME_ALREADY_STARTED" };
+    if (!this.isHost(seat)) return { ok: false, reason: "NOT_HOST" };
+    if (!this.versionMatches(configVersion)) return { ok: false, reason: "CONFIG_VERSION_MISMATCH" };
+    const seats = this.members.map((m) => m.seat);
+    if (order.length !== seats.length || new Set(order).size !== order.length || !order.every((s) => seats.includes(s))) {
+      return { ok: false, reason: "BAD_ORDER" };
+    }
+    this.actionOrder = order.slice();
+    this.bumpConfig(seat, "SET_ORDER");
+    this.broadcastLobbyConfig("SET_ORDER");
+    return { ok: true };
+  }
+  /** 房主点击随机顺序；用独立随机源，不复用地图 seed */
+  randomizeOrder(seat, configVersion) {
+    if (this.settingsLocked) return { ok: false, reason: "GAME_ALREADY_STARTED" };
+    if (!this.isHost(seat)) return { ok: false, reason: "NOT_HOST" };
+    if (!this.versionMatches(configVersion)) return { ok: false, reason: "CONFIG_VERSION_MISMATCH" };
+    const order = this.members.map((m) => m.seat);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    this.actionOrder = order;
+    this.bumpConfig(seat, "RANDOMIZE_ORDER");
+    this.broadcastLobbyConfig("RANDOMIZE_ORDER");
+    return { ok: true };
+  }
+  /** 把新入座/目标人数变化补进 actionOrder，保持「当前 seat 的一个排列」 */
+  syncOrderToSeats() {
+    const seats = this.members.map((m) => m.seat);
+    const kept = this.actionOrder.filter((s) => seats.includes(s));
+    for (const s of seats) if (!kept.includes(s)) kept.push(s);
+    this.actionOrder = kept;
+  }
+  // -------------------------------------------------------------------------
   // 入座
   // -------------------------------------------------------------------------
   /**
    * 入座规则（宁可简单可预测）：
    * 1. 同名且原座位没人连着 → 视为重连，回到原座位（T7 的地基）
    * 2. 同名但座位有人连着 → SEAT_TAKEN，防止顶号
-   * 3. 未开局 → 按入座顺序分配下一个空位
+   * 3. 未开局 → 按入座顺序分配下一个空位；首位创建者成为房主
    * 4. 已开局 → 不再加人（观战留到后面）
+   *
+   * 文档 23：**取消满员自动开局**；满员只影响「可以开始」的判定。
    */
   join(rawName, socket) {
     const bySeat = this.members.length;
@@ -5021,15 +5672,24 @@ var Room = class {
       this.sockets.set(existing.seat, socket);
       existing.connected = true;
       if (this.game) this.game.players[existing.seat].name = name;
+      if (existing.seat === this.hostSeat) this.hostDisconnectedAt = null;
       return { ok: true, seat: existing.seat, view: this.viewOf(existing.seat), reclaimed: true };
     }
-    if (this.members.length >= this.capacity) return { ok: false, reason: "ROOM_FULL" };
     if (this.game) return { ok: false, reason: "IN_PROGRESS" };
+    if (this.members.length >= this.targetPlayers) return { ok: false, reason: "ROOM_FULL" };
     const seat = this.members.length;
     const finalName = normalizeName(rawName, seat);
-    this.members.push({ seat, name: finalName, connected: true });
+    this.members.push({ seat, name: finalName, connected: true, ready: false, joinedAt: this.now() });
     this.sockets.set(seat, socket);
-    if (this.members.length === this.capacity) this.start();
+    if (this.hostSeat === null) {
+      this.hostSeat = seat;
+      this.changedBy = seat;
+      this.changeReason = "INIT";
+    }
+    this.syncOrderToSeats();
+    if (this.autoStartOnFull && this.members.length === this.targetPlayers) {
+      this.start(this.hostSeat ?? seat, this.configVersion);
+    }
     return { ok: true, seat, view: this.viewOf(seat), reclaimed: false };
   }
   reconnect(seat, socket) {
@@ -5037,26 +5697,151 @@ var Room = class {
     if (!member) return;
     this.sockets.set(seat, socket);
     member.connected = true;
+    if (seat === this.hostSeat) this.hostDisconnectedAt = null;
   }
-  /** 断线不释放座位：30 分钟内可原座重连（T7） */
+  /** 断线不释放座位：可原座重连（T7）。房主断线开始按钮锁定，60 秒后移交。 */
   leave(seat) {
     const member = this.members.find((m) => m.seat === seat);
     if (!member) return;
     this.sockets.delete(seat);
     member.connected = false;
+    if (seat === this.hostSeat && !this.game) {
+      this.hostDisconnectedAt = this.now();
+    }
+  }
+  /** 心跳驱动：房主断线宽限到期后移交给最早入房且在线者；原房主回来不夺回 */
+  maybeTransferHost(t) {
+    if (this.game || this.hostDisconnectedAt === null) return;
+    if (t - this.hostDisconnectedAt < HOST_GRACE_MS) return;
+    const host2 = this.members.find((m) => m.seat === this.hostSeat);
+    if (host2?.connected) {
+      this.hostDisconnectedAt = null;
+      return;
+    }
+    const next = this.members.filter((m) => m.connected && m.seat !== this.hostSeat).sort((a, b) => a.joinedAt - b.joinedAt || a.seat - b.seat)[0];
+    if (!next) return;
+    this.hostSeat = next.seat;
+    this.hostDisconnectedAt = null;
+    this.bumpConfig(next.seat, "HOST_TRANSFER");
+    this.broadcastLobbyConfig("HOST_TRANSFER");
   }
   // -------------------------------------------------------------------------
   // 开局
   // -------------------------------------------------------------------------
-  start() {
+  /**
+   * 房主手动开始。产品路径：满目标人数、全员在线且准备、配置版本一致才放行。
+   * seat / configVersion 省略时视为内部测试夹具调用（server.ts 一定显式传入）。
+   */
+  start(seat, configVersion) {
     if (this.game) return { ok: false, reason: "ALREADY_STARTED" };
-    if (this.members.length < 2) return { ok: false, reason: "NEED_MORE_PLAYERS" };
+    if (seat !== void 0 && !this.isHost(seat)) return { ok: false, reason: "NOT_HOST" };
+    if (!this.versionMatches(configVersion)) return { ok: false, reason: "CONFIG_VERSION_MISMATCH" };
+    const block = this.startBlockReason();
+    if (block) {
+      return { ok: false, reason: block };
+    }
     const ordered = this.members.slice().sort((a, b) => a.seat - b.seat);
     const names = ordered.map((m) => m.name);
     const colors = Array.from(PLAYER_COLORS).slice(0, names.length);
-    this.game = createGame(this.board, names, colors, this.settings.setupGrant);
+    const seats = ordered.map((m) => m.seat);
+    const validOrder = this.actionOrder.length === seats.length && new Set(this.actionOrder).size === seats.length && this.actionOrder.every((s) => seats.includes(s));
+    const order = validOrder ? this.actionOrder.slice() : seats;
+    this.game = createGame(this.board, names, colors, {
+      setupGrant: this.settings.setupGrant,
+      actionOrder: order
+    });
     this.seq += 1;
+    this.armSetupTimer();
     return { ok: true };
+  }
+  // -------------------------------------------------------------------------
+  // 选地计时与超时合法随机代放（文档 23 §7）
+  // -------------------------------------------------------------------------
+  /** 每个选地步骤独立 180 秒；进入新步骤时重新起算，上一步剩余不累积 */
+  armSetupTimer() {
+    const game = this.game;
+    if (!game || game.phase !== "setup" || !game.setup) {
+      this.setupDeadline = null;
+      return;
+    }
+    const t = this.now();
+    this.setupDeadline = {
+      step: game.setup.step,
+      seat: game.setup.seat,
+      startedAt: t,
+      deadline: t + SETUP_STEP_MS,
+      serverTime: t
+    };
+    this.sendAll({ t: "SETUP_TIMER", timer: { ...this.setupDeadline } });
+  }
+  /**
+   * 由心跳/消息处理驱动：deadline 到达则代放。
+   * 用 gameId + setupStep + version 防止重复计时器、多次代放、同一回合两个放置。
+   */
+  advanceClock(t = this.now()) {
+    this.maybeTransferHost(t);
+    const game = this.game;
+    const timer = this.setupDeadline;
+    if (!game || game.phase !== "setup" || !game.setup || !timer) return false;
+    if (t < timer.deadline) return false;
+    if (timer.step !== game.setup.step || timer.seat !== game.setup.seat) {
+      this.armSetupTimer();
+      return false;
+    }
+    return this.autoPlace(timer.seat);
+  }
+  /** 枚举合法 (村庄, 道路)，先均匀选村庄、再在其合法道路中均匀选一条 */
+  legalPlacements() {
+    const game = this.game;
+    if (!game) return [];
+    const { geo } = this.board;
+    const out = [];
+    for (const vk of geo.vertexKeys) {
+      if (game.buildings[vk]) continue;
+      const v = geo.vertices[vk];
+      if (v.neighbors.some((nb) => game.buildings[nb])) continue;
+      for (const ek of v.edges) {
+        if (game.roads[ek] !== void 0) continue;
+        out.push({ vertex: vk, edge: ek });
+      }
+    }
+    return out;
+  }
+  /** 系统代放：走与手动完全相同的规则入口，不跳过距离/连接限制 */
+  autoPlace(seat) {
+    const combos = this.legalPlacements();
+    if (combos.length === 0) {
+      this.setupDeadline = null;
+      this.sendAll({ t: "REJECT", reason: "NO_LEGAL_PLACEMENT", detail: "\u9009\u5730\u8D85\u65F6\u4F46\u5DF2\u65E0\u5408\u6CD5\u6446\u653E\u70B9\uFF0C\u5F00\u5C40\u5DF2\u6682\u505C" });
+      return false;
+    }
+    const byVertex = /* @__PURE__ */ new Map();
+    for (const c of combos) {
+      const list = byVertex.get(c.vertex) ?? [];
+      list.push(c.edge);
+      byVertex.set(c.vertex, list);
+    }
+    const vertices = Array.from(byVertex.keys());
+    const vertex = vertices[Math.floor(Math.random() * vertices.length)];
+    const edges = byVertex.get(vertex);
+    const edge = edges[Math.floor(Math.random() * edges.length)];
+    const step = this.game.setup.step;
+    const outcome = this.command(seat, { type: "PLACE_SETTLEMENT", seat, vertex, edge }, void 0, true);
+    if (!outcome.ok) {
+      this.setupDeadline = null;
+      this.sendAll({ t: "REJECT", reason: "NO_LEGAL_PLACEMENT", detail: `\u7CFB\u7EDF\u4EE3\u653E\u88AB\u62D2\u7EDD\uFF1A${outcome.reason}` });
+      return false;
+    }
+    this.sendAll({
+      t: "SETUP_AUTO_PLACED",
+      seat,
+      step,
+      vertex,
+      edge,
+      reason: "TIMEOUT"
+    });
+    this.sync(outcome.events);
+    return true;
   }
   // -------------------------------------------------------------------------
   // 命令
@@ -5067,7 +5852,7 @@ var Room = class {
    * **座位以连接为准**：客户端 JSON 里的 seat 一律被覆盖，
    * 否则任何人改个数字就能替别人行动。
    */
-  command(seat, cmd, rid) {
+  command(seat, cmd, rid, internal = false) {
     const reject = (reason, detail) => {
       this.sendTo(seat, {
         t: "REJECT",
@@ -5080,12 +5865,24 @@ var Room = class {
     if (!this.isSeated(seat)) return reject("NOT_SEATED");
     const game = this.game;
     if (!game) return reject("GAME_NOT_STARTED");
+    if (!internal && game.phase === "setup" && this.setupDeadline && this.now() >= this.setupDeadline.deadline) {
+      const autoPlaced = this.advanceClock();
+      if (autoPlaced) {
+        this.sendTo(seat, { t: "STATE", seq: this.seq, events: [], view: viewFor(this.board, this.game, seat), timer: this.currentTimer });
+        return reject("SETUP_TIMEOUT_REJECTED", "\u5DF2\u8D85\u65F6\uFF0C\u7CFB\u7EDF\u5B8C\u6210\u4EE3\u653E\uFF1B\u8BF7\u6309\u6700\u65B0\u72B6\u6001\u64CD\u4F5C");
+      }
+      return reject("SETUP_TIMEOUT_REJECTED", "\u5DF2\u8D85\u65F6\uFF0C\u8BF7\u7B49\u5F85\u6700\u65B0\u72B6\u6001");
+    }
     const allowFakeDice = process.env.HEXFONT_FAKE_DICE === "1";
     const safe = allowFakeDice ? { ...cmd, seat } : { ...cmd, dice: void 0, seat };
+    const wasSetup = game.phase === "setup";
     const result = applyCommand(this.board, game, safe);
     if (!result.ok) return reject(result.reason, result.detail);
     this.game = result.state;
     this.seq += 1;
+    if (wasSetup && cmd.type === "PLACE_SETTLEMENT") {
+      this.armSetupTimer();
+    }
     const dice = this.game.dice;
     const rolledSeven = cmd.type === "ROLL_DICE" && !!dice && dice[0] + dice[1] === 7;
     if (rolledSeven || cmd.type === "END_TURN" || this.game.phase === "ended") {
@@ -5127,6 +5924,7 @@ var Room = class {
   /** 供心跳调用：闲置房间也能清掉过期报价并广播，客户端仍以 expiresAt 自己算倒计时 */
   purgeExpired() {
     if (this.pruneExpired().length > 0) this.broadcastOffers("EXPIRED");
+    this.advanceClock();
   }
   pruneExpired() {
     const t = this.now();
@@ -5293,6 +6091,16 @@ var Room = class {
   // -------------------------------------------------------------------------
   // 广播
   // -------------------------------------------------------------------------
+  /** 全员同一份地图/大厅快照；地图重新随机显示操作者与版本 */
+  broadcastLobbyConfig(reason) {
+    this.sendAll({
+      t: "LOBBY_CONFIG",
+      lobby: this.lobbyConfig(),
+      map: this.mapSnapshot,
+      changedBy: this.changedBy,
+      reason
+    });
+  }
   /** 按座位裁剪视角后逐人推送。events 只用于让客户端播放动效，不参与状态还原。 */
   sync(events = []) {
     const game = this.game;
@@ -5301,13 +6109,16 @@ var Room = class {
         t: "LOBBY",
         roomId: this.id,
         capacity: this.capacity,
-        players: this.lobbyPlayers()
+        players: this.lobbyPlayers(),
+        lobby: this.lobbyConfig(),
+        map: this.mapSnapshot
       });
       return;
     }
+    const timer = this.currentTimer;
     for (const [seat, socket] of this.sockets) {
       const view = viewFor(this.board, game, seat);
-      socket.send(encode({ t: "STATE", seq: this.seq, events, view }));
+      socket.send(encode({ t: "STATE", seq: this.seq, events, view, timer }));
     }
   }
   sendTo(seat, msg) {
@@ -5329,25 +6140,69 @@ var RoomRegistry = class {
   maxRooms;
   board;
   now;
+  autoStartOnFull;
+  minPlayers;
+  skipReadyCheck;
+  seed;
+  mapFactory;
   constructor(opts = {}) {
-    this.capacity = opts.capacity ?? 4;
+    this.capacity = opts.capacity ?? MIN_PLAYERS;
     this.maxRooms = opts.maxRooms ?? 64;
     this.board = opts.board;
     this.now = opts.now ?? (() => Date.now());
+    this.autoStartOnFull = opts.autoStartOnFull ?? false;
+    this.minPlayers = opts.minPlayers ?? MIN_PLAYERS;
+    this.skipReadyCheck = opts.skipReadyCheck ?? false;
+    this.seed = opts.seed;
+    this.mapFactory = opts.mapFactory ?? null;
   }
   get size() {
     return this.rooms.size;
   }
-  getOrCreate(id) {
+  /** 构造房间的公共实现（create / getOrCreate 共用） */
+  makeRoom(id, players) {
+    const target = typeof players === "number" && Number.isFinite(players) ? Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, Math.floor(players))) : this.capacity;
+    return new Room(id, {
+      capacity: target,
+      board: this.board,
+      now: this.now,
+      autoStartOnFull: this.autoStartOnFull,
+      minPlayers: this.minPlayers,
+      skipReadyCheck: this.skipReadyCheck,
+      seed: this.seed,
+      mapFactory: this.mapFactory
+    });
+  }
+  /**
+   * F1：显式、原子地创建房间。已存在返回 ROOM_EXISTS；达到房间数上限返回 ROOM_LIMIT。
+   * 创建与登记在同一同步块内完成 —— 两人并发 CREATE 同名房间只有一人成功。
+   * 创建者随后以 JOIN 入座并被授予房主（见 Room.join 的 hostSeat 初始化）。
+   */
+  create(id, players) {
+    if (this.rooms.has(id)) return { ok: false, reason: "ROOM_EXISTS" };
+    if (this.rooms.size >= this.maxRooms) return { ok: false, reason: "ROOM_LIMIT" };
+    const room = this.makeRoom(id, players);
+    this.rooms.set(id, room);
+    return { ok: true, room };
+  }
+  /**
+   * 内部测试夹具保留：查找或创建（旧 2–3 人 WS 集成测试依赖「首个 JOIN 即建房间」）。
+   * 产品路径已改为 server.ts 的 CREATE → JOIN 两段；JOIN 绝不隐式创建。
+   */
+  getOrCreate(id, players) {
     const hit = this.rooms.get(id);
     if (hit) return hit;
     if (this.rooms.size >= this.maxRooms) return null;
-    const room = new Room(id, { capacity: this.capacity, board: this.board, now: this.now });
+    const room = this.makeRoom(id, players);
     this.rooms.set(id, room);
     return room;
   }
   get(id) {
     return this.rooms.get(id);
+  }
+  /** F1：CREATE 后紧接入座失败时撤掉刚建的空房间，避免留下孤儿房间 */
+  delete(id) {
+    return this.rooms.delete(id);
   }
   list() {
     return Array.from(this.rooms.values());
@@ -5422,6 +6277,24 @@ function serveFile(res, file) {
     res.end("read error");
   }
 }
+function sendWelcome(reply, room, seat, view) {
+  reply({
+    t: "WELCOME",
+    roomId: room.id,
+    seat,
+    capacity: room.capacity,
+    players: room.lobbyPlayers(),
+    view,
+    // 恢复快照：只带未过期报价、列表版本、服务端时间与本人冷却
+    snapshot: room.snapshot(),
+    stateSeq: room.version,
+    // 文档 23：大厅/地图/计时权威快照，刷新与重连都不重置 deadline
+    lobby: room.started ? null : room.lobbyConfig(),
+    map: room.map,
+    timer: room.currentTimer,
+    settings: room.roomSettings
+  });
+}
 var HEALTH_PLACEHOLDER = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <title>\u516D\u89D2\u62D3\u8352 \xB7 \u670D\u52A1\u7AEF</title>
@@ -5437,7 +6310,13 @@ var HEALTH_PLACEHOLDER = `<!doctype html>
 <body><div class="box"><h1>\u516D\u89D2\u62D3\u8352 \xB7 \u670D\u52A1\u7AEF\u5728\u7EBF</h1>
 <p>WebSocket \u5DF2\u5C31\u7EEA\uFF0C\u7B49\u5F85\u524D\u7AEF\u6784\u5EFA\u4EA7\u7269</p></div></body></html>`;
 function createAppServer(opts = {}) {
-  const registry = new RoomRegistry({ capacity: opts.capacity });
+  const registry = new RoomRegistry({
+    capacity: opts.capacity,
+    autoStartOnFull: opts.autoStartOnFull,
+    minPlayers: opts.minPlayers,
+    skipReadyCheck: opts.skipReadyCheck,
+    board: opts.board
+  });
   const heartbeatMs = opts.heartbeatMs ?? 3e4;
   const httpServer = import_node_http.default.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -5507,15 +6386,40 @@ function createAppServer(opts = {}) {
         case "PING":
           reply({ t: "PONG", id: msg.id });
           return;
+        // F1：CREATE 显式、原子创建；随后由同一条连接发 JOIN 入座并成为房主。
+        // 创建与登记在同一同步块内，两人并发同名 CREATE 只有一人成功。
+        case "CREATE": {
+          if (msg.v !== PROTOCOL_VERSION) {
+            reply({ t: "JOIN_FAILED", reason: "PROTOCOL_MISMATCH" });
+            return;
+          }
+          const roomId = normalizeRoomId(msg.roomId) ?? "main";
+          const made = registry.create(roomId, msg.players);
+          if (!made.ok) {
+            reply({ t: "JOIN_FAILED", reason: made.reason });
+            return;
+          }
+          const result = made.room.join(msg.name, { send: (data) => ws.send(data) });
+          if (!result.ok) {
+            registry.delete(roomId);
+            reply({ t: "JOIN_FAILED", reason: result.reason });
+            return;
+          }
+          sessions.set(ws, { room: made.room, seat: result.seat });
+          sendWelcome(reply, made.room, result.seat, result.view);
+          made.room.broadcastSettings();
+          made.room.sync();
+          return;
+        }
         case "JOIN": {
           if (msg.v !== PROTOCOL_VERSION) {
             reply({ t: "JOIN_FAILED", reason: "PROTOCOL_MISMATCH" });
             return;
           }
           const roomId = normalizeRoomId(msg.roomId) ?? "main";
-          const room = registry.getOrCreate(roomId);
+          const room = registry.get(roomId);
           if (!room) {
-            reply({ t: "JOIN_FAILED", reason: "ROOM_LIMIT" });
+            reply({ t: "JOIN_FAILED", reason: "ROOM_NOT_FOUND" });
             return;
           }
           const result = room.join(msg.name, { send: (data) => ws.send(data) });
@@ -5524,17 +6428,7 @@ function createAppServer(opts = {}) {
             return;
           }
           sessions.set(ws, { room, seat: result.seat });
-          reply({
-            t: "WELCOME",
-            roomId: room.id,
-            seat: result.seat,
-            capacity: room.capacity,
-            players: room.lobbyPlayers(),
-            view: result.view,
-            // 恢复快照：只带未过期报价、列表版本、服务端时间与本人冷却
-            snapshot: room.snapshot(),
-            stateSeq: room.version
-          });
+          sendWelcome(reply, room, result.seat, result.view);
           room.broadcastSettings();
           room.sync();
           return;
@@ -5545,8 +6439,76 @@ function createAppServer(opts = {}) {
             reply({ t: "REJECT", reason: "NOT_SEATED" });
             return;
           }
-          session.room.setSettings({ setupGrant: msg.setupGrant });
+          const changed = session.room.setSettings({ setupGrant: msg.setupGrant }, session.seat);
+          if (!changed) reply({ t: "REJECT", reason: "NOT_HOST" });
           session.room.broadcastSettings();
+          return;
+        }
+        // -------------------------------------------------------------------
+        // 文档 23 L-1/L-2/L-4：房主配置、准备、排序、地图、手动开始
+        // 服务端一律再次校验权限与 configVersion；前端禁用按钮只是呈现。
+        // -------------------------------------------------------------------
+        // F2：人数与手动选图是两条独立消息，绝不一起提交。
+        case "SET_PLAYER_COUNT": {
+          const session = sessions.get(ws);
+          if (!session) {
+            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            return;
+          }
+          const out = session.room.applyPlayerCount(session.seat, msg.targetPlayers, msg.configVersion);
+          if (!out.ok) reply({ t: "REJECT", reason: out.reason });
+          session.room.sync();
+          return;
+        }
+        case "SET_BOARD": {
+          const session = sessions.get(ws);
+          if (!session) {
+            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            return;
+          }
+          const out = session.room.applyBoard(session.seat, msg.board, msg.configVersion);
+          if (!out.ok) reply({ t: "REJECT", reason: out.reason });
+          session.room.sync();
+          return;
+        }
+        case "REROLL_MAP": {
+          const session = sessions.get(ws);
+          if (!session) {
+            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            return;
+          }
+          const out = session.room.rerollMap(session.seat, msg.configVersion);
+          if (!out.ok) reply({ t: "REJECT", reason: out.reason });
+          return;
+        }
+        case "READY": {
+          const session = sessions.get(ws);
+          if (!session) {
+            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            return;
+          }
+          const out = session.room.setReady(session.seat, msg.ready);
+          if (!out.ok) reply({ t: "REJECT", reason: out.reason });
+          return;
+        }
+        case "SET_ORDER": {
+          const session = sessions.get(ws);
+          if (!session) {
+            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            return;
+          }
+          const out = session.room.setOrder(session.seat, msg.order, msg.configVersion);
+          if (!out.ok) reply({ t: "REJECT", reason: out.reason });
+          return;
+        }
+        case "RANDOMIZE_ORDER": {
+          const session = sessions.get(ws);
+          if (!session) {
+            reply({ t: "REJECT", reason: "NOT_SEATED" });
+            return;
+          }
+          const out = session.room.randomizeOrder(session.seat, msg.configVersion);
+          if (!out.ok) reply({ t: "REJECT", reason: out.reason });
           return;
         }
         case "OFFER": {
@@ -5592,9 +6554,10 @@ function createAppServer(opts = {}) {
             reply({ t: "REJECT", reason: "NOT_SEATED" });
             return;
           }
-          const started = session.room.start();
+          const started = session.room.start(session.seat, msg.configVersion);
           if (!started.ok) {
-            reply({ t: "REJECT", reason: started.reason === "ALREADY_STARTED" ? "WRONG_PHASE" : "NOT_YOUR_TURN" });
+            const reason = started.reason === "ALREADY_STARTED" ? "GAME_ALREADY_STARTED" : started.reason === "NEED_MORE_PLAYERS" ? "NOT_ENOUGH_PLAYERS" : started.reason;
+            reply({ t: "REJECT", reason });
             return;
           }
           session.room.sync();
@@ -5619,6 +6582,7 @@ function createAppServer(opts = {}) {
       if (!session) return;
       sessions.delete(ws);
       session.room.leave(session.seat);
+      session.room.advanceClock();
       session.room.sync();
     });
     ws.on("error", () => {

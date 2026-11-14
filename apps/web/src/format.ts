@@ -81,9 +81,9 @@ export function describeEvent(ev: GameEvent, view: PlayerView): string | null {
     case 'TRADE_COMPLETED':
       return `${playerName(view, ev.a)} 用 ${fmtResources(ev.aGives)} 换 ${playerName(view, ev.b)} 的 ${fmtResources(ev.bGives)}`;
     case 'BANK_TRADED':
-      return `${playerName(view, ev.player)} 与银行 ${ev.ratio}:1 兑换`;
-    case 'PORT_TRANSFERRED':
-      return `${playerName(view, ev.executor)} 借港替 ${playerName(view, ev.beneficiary)} 兑换`;
+      return `${playerName(view, ev.player)} 与银行 ${ev.ratio}:1 兑换（${fmtResources({ [ev.give]: ev.ratio })} → ${fmtResources({ [ev.get]: 1 })}）`;
+    case 'PORT_TRADED':
+      return `${playerName(view, ev.player)} 用自有港口 ${ev.ratio}:1 兑换（${fmtResources(ev.give)} → ${fmtResources({ [ev.get]: 1 })}）`;
     case 'GAME_WON':
       return `${playerName(view, ev.player)} 以 ${ev.score} 分获胜`;
     case 'TURN_ENDED':

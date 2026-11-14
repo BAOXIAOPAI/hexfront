@@ -1,0 +1,164 @@
+{
+  "roomId": "f24-mwg6gt7m",
+  "checks": [
+    {
+      "id": "F1-01 入房表单同时有「加入房间」与「创建房间」两个显式按钮",
+      "ok": true,
+      "detail": "{\"hasJoin\":true,\"hasCreate\":true,\"text\":\"\\n      进入牌桌\\n      建好房间后把邀请链接发给朋友，对方点开链接、填个昵称就能进来。不需要在同一网络下。\\n      \\n        \\n          你的名字\\n          \\n        \\n        \\n          房间号 点开邀请链接会自动填好\\n          \\n            \\n            换一个\\n          \\n        \\n        \\n          邀请链接 （已带上房间号，朋友点开直接进来）\\n          \\n            \\n            复制邀请链接\\n          \\n          复制后发给朋友即可；链接不含你的昵称，对方需自己填名字。\\n        \\n        \\n          创建房间时的人数上限（4–8，开局前由房主设定）\\n          4 人5 人6 人7 人8 人\\n        \\n        加入房间\\n        创建房间（成为房主并设定人数）\\n        \\n      \\n      \\n        人齐不会自动开局：所有人入座并点「准备」后，由房主点击开始。刷新或断线重连会用同名回到原座位。\\n      \\n    \"}"
+    },
+    {
+      "id": "F1-02 加入不存在房间被明确拒绝（ROOM_NOT_FOUND），且服务端没有产生房间",
+      "ok": true,
+      "detail": "\n      进不去这张桌子\n      这个房间还不存在，请让房主先创建，或检查邀请链接里的房间号\n      换个名字\n      常见原因：这个名字已经有"
+    },
+    {
+      "id": "F1-03 创建成功后房间存在、创建者入座（seat 0）且成为房主",
+      "ok": true,
+      "detail": "{\"roomInfo\":{\"id\":\"f24-mwg6gt7m\",\"players\":1,\"connected\":1,\"started\":false,\"turn\":0},\"seat\":0}"
+    },
+    {
+      "id": "F1-04 加入者入座 seat 1，房主仍是创建者（不抢房主）",
+      "ok": true,
+      "detail": "guest.seat=1"
+    },
+    {
+      "id": "F2-01 人数改到 6 人自动切换 30 格扩展盘（不是把当前盘误标手动）",
+      "ok": true,
+      "detail": "{\"meta\":\"30 格 · 砖5 沙2 矿5 羊6 麦6 木6 · 红点6 · 11 港 · 种子 f24-mwg6 · v2\",\"hexCount\":30,\"boardSelect\":\"ext\",\"playersSelect\":\"6\",\"manualTag\":false}"
+    },
+    {
+      "id": "F2-02 地图预览与人数同步广播（快照摘要变化）",
+      "ok": true,
+      "detail": "19 格 · 砖3 沙1 矿3 羊4 麦4 木4 · 红点4 · 9 港 · 种子 f24-mwg6 · v1 → 30 格 · 砖5 沙2 矿5 羊6 麦6 木6 · 红点6 · 11 港 · 种子 f24-mwg6 · v2"
+    },
+    {
+      "id": "F2-03 明确手选地图标记「自定义地图」并给出拥挤提示",
+      "ok": true,
+      "detail": "{\"hexCount\":19,\"manualTag\":true,\"warn\":true}"
+    },
+    {
+      "id": "F2-04 人数改回 4 人重新应用推荐标准盘并清除自定义标记",
+      "ok": true,
+      "detail": "{\"hexCount\":19,\"manualTag\":false}"
+    },
+    {
+      "id": "F3-01 1440×900 桌面视口不自转、不显示手机转向提示",
+      "ok": true,
+      "detail": "{\"mode\":\"off\",\"hudHidden\":true,\"desktopGateHidden\":true}"
+    },
+    {
+      "id": "F3-02 低于 1280×720 出现桌面提示且仍不自转",
+      "ok": true,
+      "detail": "{\"gateHidden\":false,\"gateText\":\"请使用电脑并扩大窗口；最低支持 1280×720，推荐 1440×900。\",\"mode\":\"off\"}"
+    },
+    {
+      "id": "F2-05 4 人房只有 2 人时不能开始（人数未达标）",
+      "ok": true,
+      "detail": "{\"exists\":true,\"disabled\":true,\"block\":\"暂不能开始：人数未达到目标人数\"}"
+    },
+    {
+      "id": "F2-06 满 4 人且全员准备后房主可开始",
+      "ok": true,
+      "detail": "{\"disabled\":false}"
+    },
+    {
+      "id": "F3-03 开局后桌面视口仍不自转（保持桌面专用流程）",
+      "ok": true,
+      "detail": "{\"phase\":\"setup\",\"overlayHidden\":true,\"mode\":\"off\"}"
+    },
+    {
+      "id": "F4-01 棋盘 SVG 与其中文字禁止文本选择（user-select: none）",
+      "ok": true,
+      "detail": "{\"boardUserSelect\":\"none\",\"textUserSelect\":\"none\",\"textCount\":27}"
+    },
+    {
+      "id": "F4-02 数字圆片：主圆/内圈/数字同心，纸雕阴影独立下移，文字不可选中",
+      "ok": true,
+      "detail": "{\"key\":\"-2,0\",\"num\":\"9\",\"mainCy\":[-168],\"innerCy\":[-168],\"shadowCy\":[-165],\"textY\":-168}"
+    },
+    {
+      "id": "F4-03 普通输入框仍可选中文字（未被全局规则误伤）",
+      "ok": true,
+      "detail": "auto"
+    },
+    {
+      "id": "F5-01 行动区出现「银行兑换」与「我的港口兑换」两个独立入口，且无「借港代换」",
+      "ok": true,
+      "detail": " 发展卡 / 行动卡 银行兑换 · 4:1 我的港口兑换 骑士 垄断 丰饶 筑路 待处理报价 操作帮助 "
+    },
+    {
+      "id": "F6-01 报价面板是两步流程：第一步「我想收到」+「下一步：我愿给出」",
+      "ok": true,
+      "detail": "\n      待处理报价（0）\n      按创建时间排序，可任选一条处理；列表里的操作按钮位置固定，到期/替换/清除后 | 收到的提议\n      下一步：我愿给出\n           当前阶段不能报价"
+    },
+    {
+      "id": "F6-02 第二步「我愿给出」有滑条与完整条件摘要，发送按钮按阶段给出禁用原因",
+      "ok": true,
+      "detail": "{\"ranges\":5,\"foot\":\"收到的提议 返回修改 当前阶段不能报价\"}"
+    },
+    {
+      "id": "F3-04 1280×720 下不自转、不显示门槛提示、无横向溢出",
+      "ok": true,
+      "detail": "{\"mode\":\"off\",\"gateHidden\":true,\"overflowX\":false}"
+    }
+  ],
+  "shots": [
+    "f24-01-host-lobby-1440.png",
+    "f24-02-ext-30hex-6p-1440.png",
+    "f24-03-desktop-gate-1100.png",
+    "f24-04-setup-board-1440.png",
+    "f24-05-offer-step1-1440.png",
+    "f24-06-offer-step2-1440.png",
+    "f24-07-min-1280x720.png"
+  ],
+  "startedAt": "2026-11-14T09:02:46.872Z",
+  "geometry": {
+    "tileKey": "-2,0",
+    "number": "9",
+    "textY": -168,
+    "textAnchor": "middle",
+    "baseline": "central",
+    "textPointerEvents": "none",
+    "circles": [
+      {
+        "cy": -165,
+        "r": 18.4,
+        "shadow": true
+      },
+      {
+        "cy": -168,
+        "r": 18.4,
+        "shadow": false
+      },
+      {
+        "cy": -168,
+        "r": 15.4,
+        "shadow": false
+      },
+      {
+        "cy": -153.5,
+        "r": 1.35,
+        "shadow": false
+      },
+      {
+        "cy": -153.5,
+        "r": 1.35,
+        "shadow": false
+      },
+      {
+        "cy": -153.5,
+        "r": 1.35,
+        "shadow": false
+      },
+      {
+        "cy": -153.5,
+        "r": 1.35,
+        "shadow": false
+      }
+    ],
+    "discCount": 18
+  },
+  "finishedAt": "2026-11-14T09:03:04.445Z",
+  "passed": 20,
+  "failed": 0
+}

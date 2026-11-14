@@ -12,7 +12,7 @@ import {
   type Resource,
   type ResourceCount,
 } from '@hexfront/engine';
-import type { LobbyPlayer, OfferView, OfferSnapshot, RoomSettings } from '@hexfront/protocol';
+import type { LobbyPlayer, OfferView, OfferSnapshot, RoomSettings, SetupTimer } from '@hexfront/protocol';
 import { initTooltips } from './tips.js';
 import { describeEvent, playerName } from './format.js';
 import {
@@ -67,6 +67,13 @@ export interface UiCallbacks extends PanelCallbacks {
   onEndTurn(): void;
   onStart(): void;
   onJoin(name: string, roomId: string): void;
+  /** 文档 23：创建房间时房主预先设定人数上限（4–8） */
+  onCreate(name: string, roomId: string, players: number): void;
+  /** 邀请链接：换一个随机房间号 / 复制当前房间的邀请链接 */
+  onRerollRoom(): string;
+  onCopyInvite(roomId: string): void;
+  /** 房间号被用户手动改动时同步给入口层（复制链接要用最新值） */
+  onRoomIdChange(roomId: string): void;
   onPlace(vertex: string, edge: string): void;
   onDiscard(resources: Partial<ResourceCount>): void;
   onBuild(kind: BuildMode, target: string): void;
@@ -182,6 +189,31 @@ export class Ui {
 
   /** 相机在 Panels 之后构造；它就绪前忽略来自横屏状态机的重算回调 */
   private cameraReady = false;
+  /** 文档 23 L-4：服务端权威的当前步骤计时，客户端只展示 */
+  private setupTimer: SetupTimer | null = null;
+  private setupTimerReceivedAt = 0;
+
+  /** 服务端推来新的选地计时（含刷新/重连后的恢复） */
+  setSetupTimer(timer: SetupTimer | null): void {
+    this.setupTimer = timer;
+    this.setupTimerReceivedAt = Date.now();
+    if (this.view && this.view.phase === 'setup') this.paintSetupBar(this.view);
+  }
+
+  /** 每秒由 main.ts 调用：只改数字，不整块重画棋盘 */
+  tickSetupTimer(now: number): void {
+    const t = this.setupTimer;
+    if (!t || !this.view || this.view.phase !== 'setup') return;
+    const skew = now - this.setupTimerReceivedAt;
+    const left = Math.max(0, Math.ceil((t.deadline - (t.serverTime + skew)) / 1000));
+    const node = document.querySelector<HTMLElement>('[data-setup-timer]');
+    if (node) {
+      const m = Math.floor(left / 60);
+      const sec = left % 60;
+      node.textContent = `${m}:${String(sec).padStart(2, '0')}`;
+      node.classList.toggle('urgent', left <= 60);
+    }
+  }
 
   constructor(private readonly cb: UiCallbacks) {
     initTooltips();
@@ -311,37 +343,95 @@ export class Ui {
 
   // ------------------------------------------------------------------ 浮层
 
-  showJoin(opts: { name: string; roomId: string; error?: string }): void {
+  showJoin(opts: {
+    name: string;
+    roomId: string;
+    error?: string;
+    players?: number;
+    inviteUrl?: string;
+    /** 由入口层注入：房间号 → 邀请链接（透传平台鉴权参数） */
+    inviteUrlFor?: (roomId: string) => string;
+  }): void {
     // ULS：入房 / 输入昵称与房间号阶段保持原生竖屏，避开软键盘错位
     this.panels.setInGame(false);
     this.overlay.classList.remove('hidden');
+    const players = opts.players ?? 4;
+    const options = [4, 5, 6, 7, 8]
+      .map((n) => `<option value="${n}" ${n === players ? 'selected' : ''}>${n} 人</option>`)
+      .join('');
+    const link = opts.inviteUrl ?? '';
     this.sheet.innerHTML = `
       <h1>进入牌桌</h1>
-      <p class="sub">同一 WiFi 下，把地址发给朋友，各开一个浏览器窗口就能开局。</p>
+      <p class="sub">建好房间后把邀请链接发给朋友，对方点开链接、填个昵称就能进来。不需要在同一网络下。</p>
       <form id="join-form">
         <div class="field">
           <label for="f-name">你的名字</label>
           <input id="f-name" maxlength="16" autocomplete="off" enterkeyhint="next" placeholder="例如：小满" value="${escapeAttr(opts.name)}">
         </div>
         <div class="field">
-          <label for="f-room">房间号</label>
-          <input id="f-room" maxlength="24" autocomplete="off" enterkeyhint="go" placeholder="main" value="${escapeAttr(opts.roomId)}">
+          <label for="f-room">房间号 <span class="lb-inline-hint">点开邀请链接会自动填好</span></label>
+          <div class="join-room-row">
+            <input id="f-room" maxlength="24" autocomplete="off" enterkeyhint="go" placeholder="例如 quiet-harbor-7k2m" value="${escapeAttr(opts.roomId)}">
+            <button class="btn ghost" type="button" id="btn-reroll-room" title="换一个随机房间号">换一个</button>
+          </div>
         </div>
-        <button class="btn primary" type="submit">加入</button>
-        <!-- A-4b：区分动作键（昵称「下一步」→ 房间号「前往」），并给出键盘直接加入的引导；
-             只改属性与文案，不动布局（真机已证回车/软键盘均可提交）。 -->
-        <div class="hint">输完按键盘上的『前往』即可加入</div>
+        <div class="join-invite" id="join-invite">
+          <div class="join-invite-label">邀请链接 <span>（已带上房间号，朋友点开直接进来）</span></div>
+          <div class="join-invite-row">
+            <input id="f-invite" readonly value="${escapeAttr(link)}" title="${escapeAttr(link)}" aria-label="邀请链接">
+            <button class="btn primary" type="button" id="btn-copy-invite">复制邀请链接</button>
+          </div>
+          <div class="join-invite-note" id="join-invite-note">复制后发给朋友即可；链接不含你的昵称，对方需自己填名字。</div>
+        </div>
+        <div class="field">
+          <label for="f-players">创建房间时的人数上限（4–8，开局前由房主设定）</label>
+          <select id="f-players">${options}</select>
+        </div>
+        <button class="btn primary" type="submit" name="intent" value="join">加入房间</button>
+        <button class="btn ghost" type="submit" name="intent" value="create" style="margin-top:8px">创建房间（成为房主并设定人数）</button>
         ${opts.error ? `<div class="err">${escapeHtml(opts.error)}</div>` : ''}
       </form>
       <div class="hint">
-        同名重连会回到原座位；座位被占用时会被拒绝。房间满员（4 人）会自动开局。
+        人齐不会自动开局：所有人入座并点「准备」后，由房主点击开始。刷新或断线重连会用同名回到原座位。
       </div>
     `;
     const form = this.sheet.querySelector<HTMLFormElement>('#join-form')!;
     const nameInput = this.sheet.querySelector<HTMLInputElement>('#f-name')!;
     const roomInput = this.sheet.querySelector<HTMLInputElement>('#f-room')!;
+    const inviteInput = this.sheet.querySelector<HTMLInputElement>('#f-invite')!;
+    const playersSel = this.sheet.querySelector<HTMLSelectElement>('#f-players')!;
+    const note = this.sheet.querySelector<HTMLElement>('#join-invite-note')!;
+
+    const makeInvite = opts.inviteUrlFor ?? (() => '');
+    /** 房间号变了，链接与入口层状态都要跟着更新 */
+    const syncRoom = (id: string): void => {
+      const clean = id.trim().toLowerCase();
+      roomInput.value = clean;
+      this.cb.onRoomIdChange(clean);
+      inviteInput.value = makeInvite(clean);
+      inviteInput.setAttribute('title', inviteInput.value);
+      note.textContent = '复制后发给朋友即可；链接不含你的昵称，对方需自己填名字。';
+    };
+
+    // 复制失败时可手动选中链接（兜底路径），点一下全选
+    inviteInput.addEventListener('focus', () => inviteInput.select());
+    inviteInput.addEventListener('click', () => inviteInput.select());
+
+    this.sheet.querySelector<HTMLButtonElement>('#btn-reroll-room')!.addEventListener('click', () => {
+      syncRoom(this.cb.onRerollRoom());
+    });
+    this.sheet.querySelector<HTMLButtonElement>('#btn-copy-invite')!.addEventListener('click', () => {
+      this.cb.onCopyInvite(roomInput.value.trim());
+      note.textContent = '已复制邀请链接，发给朋友即可。';
+    });
+    roomInput.addEventListener('change', () => syncRoom(roomInput.value));
+
     nameInput.focus();
     nameInput.select();
+    let intent: 'join' | 'create' = 'join';
+    for (const btn of form.querySelectorAll<HTMLButtonElement>('button[name="intent"]')) {
+      btn.addEventListener('click', () => { intent = btn.value === 'create' ? 'create' : 'join'; });
+    }
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const name = nameInput.value.trim();
@@ -350,7 +440,8 @@ export class Ui {
         nameInput.focus();
         return;
       }
-      this.cb.onJoin(name, roomId);
+      if (intent === 'create') this.cb.onCreate(name, roomId, Number(playersSel.value));
+      else this.cb.onJoin(name, roomId);
     });
   }
 
@@ -1174,6 +1265,9 @@ export class Ui {
         : '点一个发亮的路口放村庄'
       : `等 ${escapeHtml(playerName(view, info.seat))} 摆位`;
 
+    const timerHtml = this.setupTimer
+      ? `<div class="sb-timer"><span>本次放置</span><b data-setup-timer>--:--</b><small>超时系统代放</small></div>`
+      : '';
     this.setupbar.innerHTML = `
       <div class="sb-head">
         <span class="sb-title">开局摆位 · 第 ${info.round} 轮</span>
@@ -1181,7 +1275,9 @@ export class Ui {
       </div>
       <div class="sb-dots">${dots}</div>
       <div class="sb-hint${info.active ? ' mine' : ''}">${hint}</div>
+      ${timerHtml}
     `;
+    this.tickSetupTimer(Date.now());
   }
 
   private paintFeedHint(view: PlayerView): void {

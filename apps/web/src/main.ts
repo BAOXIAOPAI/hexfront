@@ -6,9 +6,13 @@
  */
 
 import type { Command, PlayerView } from '@hexfront/engine';
-import type { LobbyPlayer } from '@hexfront/protocol';
+import type {
+  BoardKind, LobbyConfig, LobbyPlayer, MapSnapshot, RoomSettings, SetupTimer,
+} from '@hexfront/protocol';
 import { GameClient, wsUrlFor } from './net.js';
 import { Ui } from './ui.js';
+import { LobbyView, type LobbyState } from './lobby.js';
+import { copyText, inviteUrl, isValidRoomId, normalizeRoomId, randomRoomId } from './invite.js';
 
 const params = new URLSearchParams(location.search);
 const sharecode = params.get('sharecode');
@@ -21,8 +25,56 @@ let lastSeq = 0;
 let mySeat = 0;
 let capacity = 4;
 let lobbyPlayers: LobbyPlayer[] = [];
-let roomId = normalizeRoom(params.get('room'));
+/**
+ * 文档 23 邀请链接：URL 带 ?room= 时（朋友点开邀请链接 / 刷新）必须原样沿用，
+ * 绝不能用随机号覆盖，否则朋友会进到另一个空房间。
+ * 只有直接打开首页、URL 完全没有 room 时，才生成一个随机号备用。
+ */
+const hadRoomParam = params.has('room') && isValidRoomId(params.get('room') ?? '');
+let roomId = hadRoomParam
+  ? normalizeRoomId(params.get('room'))
+  : randomRoomId();
 let myName = (params.get('name') ?? '').trim();
+
+// 文档 23：大厅/地图/计时的权威快照，全部来自服务端，客户端只展示
+let lobbyConfig: LobbyConfig | null = null;
+let mapSnapshot: MapSnapshot | null = null;
+let setupTimer: SetupTimer | null = null;
+let roomSettingsV3: RoomSettings = { setupGrant: true };
+/** 创建房间时房主选定的目标人数（4–8），随 CREATE 由 URL/表单传入 */
+let createTargetPlayers = clampPlayers(Number(params.get('players')) || 4);
+/** F1：仅「创建房间」的首条链路携带人数与 CREATE 意图；WELCOME 后清掉，重连只发 JOIN */
+let pendingCreatePlayers: number | undefined;
+/** F1：本次连接是创建还是加入；创建成功后由 WELCOME 降级，重连绝不重复创建 */
+let joinIntent: 'create' | 'join' = 'join';
+
+function clampPlayers(n: number): number {
+  return Math.max(4, Math.min(8, Math.floor(Number.isFinite(n) ? n : 4)));
+}
+
+const lobbyView = new LobbyView(
+  document.getElementById('sheet')!,
+  document.getElementById('overlay')!,
+  {
+    onReady: (ready) => { if (canSubmit()) client?.ready(ready); },
+    // F2：人数与手选地图是两条独立消息，绝不一起提交（避免把当前盘误记为手动选择）
+    onPlayerCount: (players, version) => { if (canSubmit()) client?.setPlayerCount(players, version); },
+    onBoard: (board, version) => { if (canSubmit()) client?.setBoard(board, version); },
+    onReroll: (version) => { if (canSubmit()) client?.rerollMap(version); },
+    onOrder: (order, version) => { if (canSubmit()) client?.setOrder(order, version); },
+    onRandomizeOrder: (version) => { if (canSubmit()) client?.randomizeOrder(version); },
+    onStart: (version) => { if (canSubmit()) client?.start(version); },
+  },
+);
+
+/** 把当前权威快照喂给大厅浮层；只在未开局时显示 */
+function paintLobby(): void {
+  if (!lobbyConfig || !mapSnapshot || view) return;
+  lobbyView.setState({
+    roomId, seat: mySeat, players: lobbyPlayers,
+    lobby: lobbyConfig, map: mapSnapshot, timer: setupTimer,
+  });
+}
 
 /** 仅自动化验收用：进入房间后自动展开某种建造模式 */
 const rawBuild = params.get('build');
@@ -49,7 +101,7 @@ const ui = new Ui({
   onOfferAccept: (offerId) => { if (canSubmit()) client?.acceptOffer(offerId); },
   onOfferReject: (offerId) => { if (canSubmit()) client?.rejectOffer(offerId); },
   onOfferCancel: (offerId) => { if (canSubmit()) client?.cancelOffer(offerId); },
-  onStart: () => { if (canSubmit()) client?.start(); },
+  onStart: () => { if (canSubmit()) client?.start(lobbyConfig?.configVersion); },
   onSettings: (setupGrant) => { if (canSubmit()) client?.send({ t: 'SET_SETTINGS', setupGrant }); },
   onMoveRobber: (tile, stealFrom) =>
     send({ type: 'MOVE_ROBBER', seat: mySeat, tile, ...(stealFrom === undefined ? {} : { stealFrom }) }),
@@ -60,9 +112,9 @@ const ui = new Ui({
   onPlayMonopoly: (resource) => send({ type: 'PLAY_MONOPOLY', seat: mySeat, resource }),
   onPlayPlenty: (a, b) => send({ type: 'PLAY_PLENTY', seat: mySeat, resources: [a, b] }),
   onPlayRoadBuilding: (edges) => send({ type: 'PLAY_ROAD_BUILDING', seat: mySeat, edges }),
+  // F5：银行严格 4:1；自有港口用资源袋 + 港口边，均仅自己回合可用（服务端裁决）
   onTradeBank: (give, get) => send({ type: 'TRADE_BANK', seat: mySeat, give, get }),
-  onPortTransfer: (beneficiary, give, get) =>
-    send({ type: 'PORT_TRANSFER', seat: mySeat, beneficiary, give, get }),
+  onTradePort: (port, give, get) => send({ type: 'TRADE_PORT', seat: mySeat, port, give, get }),
   onRequestPick: (kind, purpose, done) => ui.requestBoardPick(kind, purpose, done),
   // D-06：受控重连 + 探活超时兜底。核对完成前 setSynced(false)，
   // 不自动重放离线期间的建造 / 接受报价等旧意图，过期报价不续期。
@@ -73,10 +125,47 @@ const ui = new Ui({
   onJoin: (name, room) => {
     myName = name;
     roomId = normalizeRoom(room);
+    // F1：加入绝不隐式创建；房间不存在由服务端回 ROOM_NOT_FOUND
+    joinIntent = 'join';
+    pendingCreatePlayers = undefined;
     remember();
     connect();
   },
+  // F1：显式创建，创建者即房主；人数只随这一次 CREATE 带上
+  onCreate: (name, room, players) => {
+    myName = name;
+    roomId = normalizeRoom(room);
+    createTargetPlayers = clampPlayers(players);
+    pendingCreatePlayers = createTargetPlayers;
+    joinIntent = 'create';
+    remember();
+    connect();
+  },
+  // 邀请链接：换一个随机房间号（点开链接进来的人也能主动换，等同于另建新房）
+  onRerollRoom: () => {
+    roomId = randomRoomId();
+    return roomId;
+  },
+  onRoomIdChange: (id) => {
+    if (isValidRoomId(id)) roomId = id.trim().toLowerCase();
+  },
+  onCopyInvite: (id) => {
+    const url = inviteUrl(isValidRoomId(id) ? id : roomId);
+    void copyText(url).then((ok) => {
+      if (ok) ui.say('邀请链接已复制，发给朋友即可', '邀请');
+      else {
+        ui.flashReject('复制失败，请手动选中链接复制');
+        ui.say(`邀请链接：${url}`, '邀请');
+      }
+    });
+  },
 });
+
+/** 倒计时：每秒只更新数字，刷新/重连由服务端 deadline 保证不重置 */
+setInterval(() => {
+  lobbyView.tick(Date.now());
+  ui.tickSetupTimer(Date.now());
+}, 1000);
 
 /** 最近一次提交时刻：断线发生在「提交后、确认前」时用来提示正在核对结果 */
 let lastSubmitAt = 0;
@@ -112,7 +201,10 @@ function connect(): void {
   lastSeq = 0;
   ui.setRoom(roomId);
 
-  client = new GameClient(wsUrl, { roomId, name: myName }, {
+  client = new GameClient(
+    wsUrl,
+    { roomId, name: myName, players: pendingCreatePlayers, intent: joinIntent },
+    {
     onState: (state) => {
       if (state !== 'reconnecting' || !client?.isReconciling) ui.setConnection(state);
       // WebSocket OPEN 不等于已拿到可操作的完整房间状态
@@ -140,31 +232,63 @@ function connect(): void {
           roomId = msg.roomId;
           lobbyPlayers = msg.players;
           lastSeq = msg.stateSeq;
+          lobbyConfig = msg.lobby;
+          mapSnapshot = msg.map;
+          setupTimer = msg.timer;
+          roomSettingsV3 = msg.settings;
           ui.setRoom(msg.roomId);
           // 恢复快照：只恢复未过期的报价，冷却以服务端时间为准
           ui.setOffers(msg.snapshot, mySeat);
+          ui.setSettings(roomSettingsV3, !!msg.view);
           ui.setSynced(true);
+          // F1：创建链路已完成，人数只随 CREATE 带过一次；重连一律 JOIN（net.markJoined 已降级 intent）
+          pendingCreatePlayers = undefined;
+          joinIntent = 'join';
+          ui.setSetupTimer(setupTimer);
           if (msg.view) {
             view = msg.view;
+            lobbyView.hide();
             ui.hideOverlay();
             ui.render(view, []);
+            ui.setSetupTimer(setupTimer);
             ui.say('已连上牌桌，等待下一步操作', '在线');
           } else {
-            ui.showLobby({ roomId: msg.roomId, capacity, players: lobbyPlayers, seat: mySeat });
+            paintLobby();
+            ui.say(`等待开局 · ${lobbyPlayers.length}/${capacity} 人`, '房间');
           }
           return;
         }
         case 'LOBBY': {
           capacity = msg.capacity;
           lobbyPlayers = msg.players;
+          lobbyConfig = msg.lobby;
+          mapSnapshot = msg.map;
           if (!view) {
-            ui.showLobby({ roomId: msg.roomId, capacity, players: lobbyPlayers, seat: mySeat });
+            paintLobby();
             ui.say(`等待开局 · ${lobbyPlayers.length}/${capacity} 人`);
           }
           return;
         }
+        case 'LOBBY_CONFIG': {
+          lobbyConfig = msg.lobby;
+          mapSnapshot = msg.map;
+          if (!view) paintLobby();
+          return;
+        }
         case 'SETTINGS': {
+          roomSettingsV3 = msg.settings;
           ui.setSettings(msg.settings, msg.locked);
+          return;
+        }
+        case 'SETUP_TIMER': {
+          setupTimer = msg.timer;
+          ui.setSetupTimer(setupTimer);
+          if (!view) paintLobby();
+          else ui.say('选地计时已更新', '计时');
+          return;
+        }
+        case 'SETUP_AUTO_PLACED': {
+          ui.say(`玩家 ${msg.seat + 1} 超时，系统已代放`, '代放');
           return;
         }
         case 'STATE': {
@@ -172,9 +296,12 @@ function connect(): void {
           if (msg.seq < lastSeq) return;
           lastSeq = msg.seq;
           view = msg.view;
+          setupTimer = msg.timer;
+          lobbyView.hide();
           ui.hideOverlay();
           ui.setSynced(true);
           ui.render(view, msg.events);
+          ui.setSetupTimer(setupTimer);
           // 仅供自动化验收：?build=road|settlement|city 进入即展开对应建造模式
           if (!buildAutoApplied && buildParam) {
             buildAutoApplied = true;
@@ -259,6 +386,14 @@ function rejectText(reason: string, detail?: string): string {
     GAME_NOT_STARTED: '还没开局',
     NOT_SEATED: '你不在座位上',
     UNKNOWN_COMMAND: '无法识别的操作',
+    NOT_HOST: '只有房主能修改房间设置、排序或开始游戏',
+    NOT_ALL_READY: '还有玩家没准备',
+    NOT_ENOUGH_PLAYERS: '人数未达到房间设定的人数',
+    PLAYERS_OFFLINE: '有玩家离线，不能开始',
+    CONFIG_VERSION_MISMATCH: '房间配置已变化，请按最新大厅状态重试',
+    BOARD_NOT_READY: '地图尚未就绪，请稍后重抽',
+    NO_LEGAL_PLACEMENT: '已无合法摆放点，开局暂停',
+    SETUP_TIMEOUT_REJECTED: '本次放置已超时，请按最新状态操作',
   };
   const base = map[reason] ?? `操作被拒绝（${reason}）`;
   return detail ? `${base}：${detail}` : base;
@@ -266,12 +401,15 @@ function rejectText(reason: string, detail?: string): string {
 
 function fatalText(reason: string): string {
   const map: Record<string, string> = {
-    ROOM_FULL: '房间满了（最多 4 人）',
+    ROOM_FULL: '房间满了（人数由房主开局前设定）',
     IN_PROGRESS: '这局已经开始了，中途不能加人',
     SEAT_TAKEN: '这个名字已经有人在用',
     ROOM_LIMIT: '服务器房间数已达上限',
     BAD_MESSAGE: '消息格式不对，可能是版本不一致',
     PROTOCOL_MISMATCH: '客户端与服务端协议版本不一致，请刷新页面',
+    // F1：加入不存在房间 / 创建重名房间
+    ROOM_NOT_FOUND: '这个房间还不存在，请让房主先创建，或检查邀请链接里的房间号',
+    ROOM_EXISTS: '这个房间号已经被创建了，换一个房间号或加入该房间',
   };
   return map[reason] ?? `无法入座（${reason}）`;
 }
@@ -285,7 +423,11 @@ if (myName) {
   remember();
   connect();
 } else {
-  ui.showJoin({ name: '', roomId });
+  ui.showJoin({
+    name: '', roomId, players: createTargetPlayers,
+    inviteUrl: inviteUrl(roomId),
+    inviteUrlFor: (id) => inviteUrl(id),
+  });
   ui.setConnection('idle');
 }
 

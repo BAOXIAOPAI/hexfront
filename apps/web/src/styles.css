@@ -1863,3 +1863,137 @@ body {
     max-width: none;
   }
 }
+
+/* ------------------------------------------------------------ 文档 23 房间大厅 */
+.sheet:has(.lb-seats) { width: min(560px, 100%); max-height: min(88vh, 900px); overflow-y: auto; }
+.lb-section-title {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); margin: 18px 0 8px; display: flex; justify-content: space-between; align-items: baseline;
+}
+.lb-section-title small { font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--muted); font-weight: 400; }
+.lb-seats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.lb-seat {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border: 1.5px solid #e6d6c0; border-radius: 10px; background: #fffdf8; font-size: 12px;
+}
+.lb-seat.open { border-style: dashed; background: transparent; color: var(--muted); }
+.lb-ava {
+  width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--c, #B9A48C); color: #fff; font-size: 11px; font-weight: 700;
+}
+.lb-ava.ghost { background: transparent; border: 1.5px dashed #cbb79c; color: var(--muted); }
+.lb-who { flex: 1; color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-st { font-size: 10.5px; color: var(--muted); }
+.lb-st.on { color: #6c8f4a; }
+.lb-rd { font-size: 10.5px; color: #b3452f; }
+.lb-rd.yes { color: #6c8f4a; }
+.lb-map { border: 1.5px solid #e6d6c0; border-radius: 12px; padding: 12px; background: #fbf4e6; }
+.lb-board-wrap {
+  background: radial-gradient(ellipse at 50% 45%, #EAF3EC 0%, #DCEBE0 72%, #CFE0D4 100%);
+  border: 1px solid #d5c7a9; border-radius: 10px; padding: 6px;
+  max-width: 460px; margin: 0 auto;
+}
+.lb-board { display: block; width: 100%; height: auto; }
+.lb-hex polygon { transition: filter .15s; }
+.lb-hex:hover polygon { filter: brightness(1.08); }
+.lb-hex.red polygon { stroke: #B84E37; stroke-width: 2; }
+.lb-hex text { pointer-events: none; user-select: none; }
+.lb-port-pin { pointer-events: none; }
+.lb-legend {
+  display: flex; flex-wrap: wrap; gap: 12px; margin: 9px 0 7px;
+  font-size: 10.5px; color: var(--muted);
+}
+.lb-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lb-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.lg-red { background: #fff; border: 2px solid #B84E37; }
+.lg-robber { background: #2A4036; border-radius: 50% !important; }
+.lg-port { background: #FFF6E2; border: 1px solid #C9B48F; }
+.lb-map-meta { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: 9px; }
+.lb-quality {
+  border: 1px solid #e4d7bd; border-radius: 9px; padding: 9px 11px; background: #fffdf8;
+}
+.lb-quality.skewed { border-color: #efd8a8; background: #fffaf0; }
+.lb-quality-head { font-size: 11.5px; font-weight: 700; color: var(--ink); letter-spacing: .02em; }
+.lb-quality-hint { font-size: 11px; color: #8A5A24; line-height: 1.65; margin: 4px 0 8px; }
+.lb-quality.balanced .lb-quality-hint { color: #4C7A3F; }
+.lb-weights { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.lb-weight { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.lb-weight-name { font-size: 10px; color: var(--muted); }
+.lb-weight-track {
+  width: 100%; height: 7px; border-radius: 99px; background: #eee3cd; overflow: hidden; display: block;
+}
+.lb-weight-track i { display: block; height: 100%; border-radius: 99px; min-width: 2px; }
+.lb-weight-val { font-size: 9.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lb-weight.scarce .lb-weight-name { color: #B3452F; font-weight: 700; }
+.lb-weight.scarce .lb-weight-name::after { content: ' 缺'; font-size: 9px; }
+.lb-quality-foot { font-size: 10px; color: var(--muted); line-height: 1.55; margin-top: 8px; }
+.lb-warn { margin-top: 9px; font-size: 11.5px; color: #9a5b17; background: #fdf0d9; border: 1px solid #efd8a8; border-radius: 8px; padding: 7px 10px; line-height: 1.6; }
+.lb-tag { display: inline-block; margin-top: 9px; font-size: 10.5px; color: var(--muted); background: #efe6d5; border-radius: 99px; padding: 3px 10px; }
+.lb-snake { font-size: 12px; color: var(--ink); background: #fffdf8; border: 1.5px solid #e6d6c0; border-radius: 10px; padding: 9px 11px; line-height: 1.7; margin-bottom: 7px; }
+.lb-order { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.lb-order-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 8px; background: #fffdf8; border-radius: 7px; }
+.lb-order-idx { width: 18px; height: 18px; border-radius: 50%; background: #eae0cc; display: grid; place-items: center; font-size: 10px; color: var(--ink-2); }
+.lb-order-name { flex: 1; color: var(--ink); }
+.lb-mini { width: 22px; height: 22px; border: 1px solid #dcc7aa; background: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; color: var(--ink); }
+.lb-mini:disabled { opacity: .35; cursor: default; }
+.lb-config { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.lb-field label { display: block; font-size: 10px; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+.lb-field select {
+  width: 100%; font-family: var(--font-body); font-size: 13px; color: var(--ink);
+  background: #fffdf8; border: 1.5px solid #dcc7aa; border-radius: 9px; padding: 7px 9px; outline: none;
+}
+.lb-btn { width: 100%; margin: 0 !important; font-size: 12px !important; padding: 8px 6px !important; }
+.lb-timer { margin-top: 14px; display: flex; align-items: baseline; gap: 10px; background: #fffdf8; border: 1.5px solid #e6d6c0; border-radius: 10px; padding: 9px 12px; }
+.lb-timer span { font-size: 11px; color: var(--muted); }
+.lb-timer b { font-family: var(--font-title); font-size: 22px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.lb-timer b.urgent { color: #C8503F; }
+.lb-timer small { font-size: 10px; color: var(--muted); margin-left: auto; }
+.lb-ready, .lb-start { margin-top: 12px !important; }
+.lb-start { margin-top: 8px !important; }
+
+/* 文档 23：入房表单人数选择 / 摆位倒计时 */
+.field select {
+  width: 100%; font-family: var(--font-body); font-size: 14px; color: var(--ink);
+  background: #fffdf8; border: 1.5px solid #dcc7aa; border-radius: 11px;
+  padding: 11px 13px; outline: none;
+}
+.field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232, 149, 47, 0.16); }
+.sb-timer {
+  margin-top: 9px; padding-top: 8px; border-top: 1px dashed rgba(42,64,54,.18);
+  display: flex; align-items: baseline; gap: 9px;
+}
+.sb-timer span { font-size: 10.5px; color: var(--muted); }
+.sb-timer b { font-family: var(--font-title); font-size: 18px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sb-timer b.urgent { color: #C8503F; }
+.sb-timer small { font-size: 10px; color: var(--muted); margin-left: auto; }
+
+/* 文档 23：入房页邀请链接与随机房间号 */
+.lb-inline-hint { font-size: 10.5px; letter-spacing: 0; text-transform: none; color: var(--muted); font-weight: 400; }
+.join-room-row { display: flex; gap: 8px; align-items: stretch; }
+.join-room-row input { flex: 1; min-width: 0; }
+.join-room-row .btn {
+  width: auto; margin: 0; flex: none; padding: 0 14px; font-size: 12px;
+  border: 1.5px solid #dcc7aa; border-radius: 11px;
+}
+.join-invite {
+  margin: 2px 0 14px; padding: 10px 11px; border: 1.5px dashed #d9c4a3;
+  border-radius: 11px; background: #fffdf8;
+}
+.join-invite-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.join-invite-label span { letter-spacing: 0; text-transform: none; font-size: 10.5px; }
+.join-invite-row { display: flex; gap: 8px; align-items: stretch; }
+.join-invite-row input {
+  flex: 1; min-width: 0; font-family: var(--font-body); font-size: 11.5px; color: #5A4A32;
+  background: #f7f0e2; border: 1px solid #e6d6c0; border-radius: 9px; padding: 8px 10px;
+  text-overflow: ellipsis;
+}
+.join-invite-row .btn { width: auto; margin: 0; flex: none; padding: 0 14px; font-size: 12px; border-radius: 9px; }
+.join-invite-note { font-size: 10.5px; color: var(--muted); line-height: 1.6; margin-top: 7px; }
+
+/* F4：对局棋盘 SVG 的地块装饰与数字不是可复制文本，禁止拖动时被浏览器蓝色选中。
+   仅作用于 #board 及其内部文字/地块/图层；输入框、textarea、[contenteditable]、
+   邀请链接等可复制信息一律保持默认（可选中）。大厅预览 .lb-hex text 已有单独规则，不动。 */
+#board, #board text, #board .tile, #board [data-layer] {
+  user-select: none;
+  -webkit-user-select: none;
+}

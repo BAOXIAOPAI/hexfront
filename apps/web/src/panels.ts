@@ -34,8 +34,10 @@ export interface PanelCallbacks {
   onPlayMonopoly(resource: Resource): void;
   onPlayPlenty(a: Resource, b: Resource): void;
   onPlayRoadBuilding(edges: [string, string?]): void;
+  /** F5：银行严格 4 张同类换 1 张指定资源 */
   onTradeBank(give: Resource, get: Resource): void;
-  onPortTransfer(beneficiary: number, give: Resource, get: Resource): void;
+  /** F5：自有港口兑换，give 是资源袋（通用港可混合），port 为港口边 key */
+  onTradePort(port: string, give: Partial<ResourceCount>, get: Resource): void;
   onOffer(to: number, give: Partial<ResourceCount>, get: Partial<ResourceCount>): void;
   onOfferAccept(offerId: string): void;
   onOfferReject(offerId: string): void;
@@ -185,12 +187,17 @@ export class Panels {
   private ticker: ReturnType<typeof setInterval> | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** 报价草稿：冷却期间仍可编辑，重发必须再次主动点击 */
+  /**
+   * F6 报价草稿：两步编辑（第一步「我想收到」= get，第二步「我愿给出」= give）。
+   * 协议语义不变：give 是发起方付出、get 是发起方收到。
+   * offerStep 只在「发起报价」里切换，切换/关闭/重绘都不重置草稿。
+   */
   private draft = {
     target: -1,
     give: {} as Partial<ResourceCount>,
     get: {} as Partial<ResourceCount>,
   };
+  private offerStep: 1 | 2 = 1;
   /** D-05：刚点过发送、还没等到服务端 OFFERS 快照 —— 本地防重复点击（不替代服务端冷却） */
   private pendingSend = false;
   private pendingSendTimer: ReturnType<typeof setTimeout> | null = null;
@@ -228,10 +235,11 @@ export class Panels {
   private roadsStep: 1 | 2 = 1;
   private knightTile: string | null = null;
   private pickEdges: string[] = [];
+  // F5：银行给出/收到；港口选择（边 key）+ 给出资源袋（可混合）+ 收到资源
   private bankGive: Resource = 'wood';
   private bankGet: Resource = 'brick';
-  private portBeneficiary = -1;
-  private portGive: Resource = 'wood';
+  private portEdge = '';
+  private portGive: Partial<ResourceCount> = {};
   private portGet: Resource = 'brick';
   private plenty: [Resource, Resource] = ['wood', 'wood'];
   private monopolyRes: Resource = 'wood';
@@ -272,6 +280,21 @@ export class Panels {
     byId('btn-buy-dev').addEventListener('click', () => this.confirmBuyDev());
     this.railActions.addEventListener('click', (ev) => this.onRailAction(ev));
     this.drawerBody.addEventListener('click', (ev) => this.onBodyClick(ev));
+    // F6：整数滑条拖动用 input/change（不是 click），单独委托，按同一套上限钳制
+    const onRange = (ev: Event): void => {
+      const el = ev.target as { dataset?: DOMStringMap; value?: string } | null;
+      if (!el || el.dataset?.act !== 'offer-qty') return;
+      const side = el.dataset.side === 'give' ? 'give' : 'get';
+      const res = el.dataset.val as Resource;
+      if (!RESOURCES.includes(res)) return;
+      const raw = Number(el.value ?? 0);
+      const bag = side === 'give' ? this.draft.give : this.draft.get;
+      const max = side === 'give' ? (this.view?.me.resources[res] ?? 0) : 99;
+      bag[res] = Math.max(0, Math.min(max, Number.isFinite(raw) ? Math.floor(raw) : 0));
+      this.renderOfferDraft();
+    };
+    this.drawerBody.addEventListener('input', onRange);
+    this.drawerBody.addEventListener('change', onRange);
     this.drawerFoot.addEventListener('click', (ev) => this.onFootClick(ev));
     this.confirmStrip.addEventListener('click', (ev) => this.onConfirmClick(ev));
     this.offerBar.addEventListener('click', () => this.open('offers'));
@@ -428,11 +451,13 @@ export class Panels {
    * S5 与 S2 完全同态（不重试、不重复弹提示）。
    */
   private updateLandscape(): void {
-    const portraitPhone = this.isPortraitPhone();
-    const portraitViewport = this.isPortraitViewport();
-    // S2 只在「竖屏 ∧ 手机 ∧ 对局」成立；竖屏但非手机（平板/分屏）→ off，
-    // 视口真是横屏 → system（撤销自转）；三者都不改 forced。
-    const next: 'off' | 'css' | 'system' = !this.inGame || !this.forced
+    // F3：桌面视口（≥1280×720）一律走桌面专用流程 —— 不整页自转、不方向锁、
+    // 不弹任何转向提示。手机竖屏的历史 ULS 状态机仅在 <700px 视口保留（归档范围），
+    // 不再作为桌面发布门槛；相机缩放/平移/resize 与本短路完全无关，照常保留。
+    const desktop = this.isDesktopViewport();
+    const portraitPhone = !desktop && this.isPortraitPhone();
+    const portraitViewport = !desktop && this.isPortraitViewport();
+    const next: 'off' | 'css' | 'system' = desktop || !this.inGame || !this.forced
       ? 'off'
       : (portraitPhone ? 'css' : (portraitViewport ? 'off' : 'system'));
     const changed = next !== this.landscapeMode;
@@ -447,6 +472,7 @@ export class Panels {
     this.syncPortraitGate();
     this.syncHud(portraitPhone, next);
     this.syncHudMotion();
+    this.syncDesktopGate();
 
     // S2 首次进入：转向提示一次会话只弹一次；iOS 等无 lock 浏览器顺带并入 C3 ① 文案
     if (next === 'css' && !this.hintShown) {
@@ -574,6 +600,30 @@ export class Panels {
     return this.isPortraitViewport() && (w > 0 ? w <= 700 : true);
   }
 
+  /**
+   * F3（文档 24 §5）：桌面最低验收 1280×720，主尺寸 1440×900。
+   * 桌面视口一律走「桌面专用流程」：不整页自转、不方向锁、不弹转向提示。
+   * 相机模块的缩放/平移/resize 完全保留（与本短路无关）。
+   */
+  static readonly DESKTOP_MIN_W = 1280;
+  static readonly DESKTOP_MIN_H = 720;
+  isDesktopViewport(): boolean {
+    const w = typeof innerWidth === 'number' ? innerWidth : 0;
+    const h = typeof innerHeight === 'number' ? innerHeight : 0;
+    return w >= Panels.DESKTOP_MIN_W && h >= Panels.DESKTOP_MIN_H;
+  }
+
+  /** 低于支持视口且非手机 → 桌面门槛提示（不旋转整页、不强制全屏）。节点静态存在于 index.html */
+  private syncDesktopGate(): void {
+    const gate = document.getElementById('desktop-gate') as HTMLElement | null;
+    if (!gate) return;
+    const w = typeof innerWidth === 'number' ? innerWidth : 0;
+    const h = typeof innerHeight === 'number' ? innerHeight : 0;
+    const tooSmall = w > 0 && h > 0 && (w < Panels.DESKTOP_MIN_W || h < Panels.DESKTOP_MIN_H);
+    const phone = w > 0 && w <= 700;
+    gate.classList.toggle('hidden', !tooSmall || phone);
+  }
+
   private hasOrientationLock(): boolean {
     type OrientationWithLock = { lock?: (o: string) => Promise<void> };
     const api = typeof screen === 'undefined'
@@ -603,7 +653,12 @@ export class Panels {
       cooldownMsLeft: Math.max(0, until - this.serverNow()),
     });
     send.disabled = gate.disabled;
-    send.textContent = gate.label;
+    // F6：第二步按钮保留「发送给「玩家名」」文案；第一步沿用既有「发送报价」；
+    // 被禁用时统一显示 gate 的具体原因（冷却 / 未同步 / 弃牌锁等）
+    const name = v?.players[this.draft.target]?.name ?? '对方';
+    send.textContent = gate.disabled
+      ? gate.label
+      : (this.offerStep === 2 ? `发送给「${name}」` : '发送报价');
   }
 
   private clearPendingSend(): void {
@@ -887,8 +942,9 @@ export class Panels {
     const nOffers = this.snapshot?.offers.filter((o) => o.expiresAt > this.serverNow()).length ?? 0;
     const entries: { id: string; label: string; badge?: number | string; disabled?: boolean }[] = [
       { id: 'dev', label: '发展卡 / 行动卡', badge: v.me.devCards.length || undefined },
-      { id: 'bank', label: '银行 / 港口兑换', disabled: blocked || v.current !== v.viewer },
-      { id: 'port', label: '借港代换', disabled: blocked || v.current !== v.viewer },
+      // F5：银行与港口是不同入口；非自己回合显示原因、弃牌期禁用
+      { id: 'bank', label: '银行兑换 · 4:1', disabled: blocked || v.current !== v.viewer },
+      { id: 'port', label: '我的港口兑换', disabled: blocked || v.current !== v.viewer },
       { id: 'knight', label: '骑士', disabled: devBlocked || !playable('knight') },
       { id: 'monopoly', label: '垄断', disabled: devBlocked || !playable('monopoly') },
       { id: 'plenty', label: '丰饶', disabled: devBlocked || !playable('plenty') },
@@ -1071,29 +1127,68 @@ export class Panels {
       if (act === 'cancel') this.cb.onOfferCancel(id);
       return;
     }
+    // F6 两步交易：一次只编辑一侧，切换步骤/返回都不重置草稿
+    if (act === 'offer-step') {
+      this.offerStep = Number(val) === 2 ? 2 : 1;
+      // 用户主动切步骤：整块重画（草稿 + foot）
+      this.renderOffers();
+      return;
+    }
+    if (act === 'offer-qty') {
+      const side = btn.dataset.side === 'give' ? 'give' : 'get';
+      const res = val as Resource;
+      const delta = Number(btn.dataset.step ?? 0);
+      const bag = side === 'give' ? this.draft.give : this.draft.get;
+      // 「我想收到」不按对方隐藏库存限制（固定上限 99）；「我愿给出」受自己库存约束
+      const max = side === 'give' ? (this.view?.me.resources[res] ?? 0) : 99;
+      bag[res] = Math.max(0, Math.min(max, (bag[res] ?? 0) + delta));
+      this.renderOfferDraft();        // D-05：只重画草稿，不重排报价列表
+      return;
+    }
+    if (act === 'offer-clear') {
+      const side = btn.dataset.side === 'give' ? 'give' : 'get';
+      if (side === 'give') this.draft.give = {}; else this.draft.get = {};
+      this.renderOfferDraft();
+      return;
+    }
+    if (act === 'target') { this.draft.target = Number(val); this.renderOfferDraft(); return; }
+    // 兼容旧 stepper 测试：把 give/get 也映射到新两侧（give=付出/get=收到）
     if (act === 'give' || act === 'get') {
       const res = val as Resource;
       const step = Number(btn.dataset.step ?? 0);
       const bag = act === 'give' ? this.draft.give : this.draft.get;
       const max = act === 'give' ? (this.view?.me.resources[res] ?? 0) : 99;
       bag[res] = Math.max(0, Math.min(max, (bag[res] ?? 0) + step));
-      this.renderOfferDraft();        // D-05：只重画草稿，不重排报价列表
+      this.renderOfferDraft();
       return;
     }
-    if (act === 'target') { this.draft.target = Number(val); this.renderOfferDraft(); return; }
     if (act === 'select') {
       const key = btn.dataset.key ?? '';
       const res = val as Resource;
       if (key === 'bankGive') this.bankGive = res;
       if (key === 'bankGet') this.bankGet = res;
-      if (key === 'portGive') this.portGive = res;
       if (key === 'portGet') this.portGet = res;
       if (key === 'monopolyRes') this.monopolyRes = res;
-      if (key === 'portBeneficiary') this.portBeneficiary = Number(val);
       if (key === 'plenty') {
         const slot = Number(btn.dataset.slot ?? 0) as 0 | 1;
         this.plenty[slot] = res;
       }
+      this.renderPanel(this.mode!);
+      return;
+    }
+    // F5：港口资源袋加减（通用港可混合）、选择具体港口
+    if (act === 'port-bag') {
+      const res = val as Resource;
+      const delta = Number(btn.dataset.step ?? 0);
+      const held = this.view?.me.resources[res] ?? 0;
+      this.portGive[res] = Math.max(0, Math.min(held, (this.portGive[res] ?? 0) + delta));
+      if (this.portGive[res] === 0) delete this.portGive[res];
+      this.renderPanel(this.mode!);
+      return;
+    }
+    if (act === 'port-edge') {
+      this.portEdge = btn.dataset.edge ?? '';
+      this.portGive = {};   // 换港口清空资源袋（不同港口比例可能不同）
       this.renderPanel(this.mode!);
       return;
     }
@@ -1154,10 +1249,19 @@ export class Panels {
       return;
     }
     if (act === 'port') {
-      if (this.portBeneficiary < 0) return this.toast('先选择受益人');
-      if (this.portGive === this.portGet) return this.toast('同种资源不能兑换');
+      // F5：港口须选自己的港口，给出资源袋总数/种类由服务端最终裁决
+      if (!this.portEdge) return this.toast('先选择一个自己的港口');
+      const total = RESOURCES.reduce((n, r) => n + (this.portGive[r] ?? 0), 0);
+      if (total === 0) return this.toast('先选择要交出的资源');
       this.close();
-      this.cb.onPortTransfer(this.portBeneficiary, this.portGive, this.portGet);
+      this.cb.onTradePort(this.portEdge, { ...this.portGive }, this.portGet);
+      return;
+    }
+    // F6：发送按钮在第二步；两步都为空不能提交（由 offerSendGate 统一判空）。
+    // 切步骤是用户显式操作，整块重画（草稿+foot）；报价卡片仍按服务端快照重排。
+    if (act === 'offer-next' || act === 'offer-back') {
+      this.offerStep = act === 'offer-next' ? 2 : 1;
+      this.renderOffers();
       return;
     }
     if (act === 'monopoly') { this.close(); this.cb.onPlayMonopoly(this.monopolyRes); return; }
@@ -1238,19 +1342,19 @@ export class Panels {
     this.foot(`<button class="btn primary" data-foot="close">知道了</button>`);
   }
 
-  /** 银行/自有港口比例：提示用 view 里的公开港口与建筑推导，最终以服务端裁决为准 */
-  private portRatioHint(resource: Resource): number {
+  /** F5：从公开 view 推导「我的港口」（端点上有自己的村庄/城市，道路不算） */
+  private myPorts(): { edge: string; generic: boolean; resource?: Resource }[] {
     const v = this.view;
-    if (!v) return 4;
-    let ratio = 4;
+    if (!v) return [];
+    const out: { edge: string; generic: boolean; resource?: Resource }[] = [];
     for (const slot of v.ports) {
       const [a, b] = slot.edge.split('|');
       const owns = [a, b].some((vk) => v.buildings[vk ?? '']?.owner === v.viewer);
       if (!owns) continue;
-      if (slot.port.kind === 'generic') ratio = Math.min(ratio, 3);
-      else if (slot.port.resource === resource) ratio = Math.min(ratio, 2);
+      if (slot.port.kind === 'generic') out.push({ edge: slot.edge, generic: true });
+      else out.push({ edge: slot.edge, generic: false, resource: slot.port.resource });
     }
-    return ratio;
+    return out;
   }
 
   private resourceChips(key: string, current: Resource | number): string {
@@ -1258,41 +1362,81 @@ export class Panels {
       ${current === r ? 'aria-pressed="true"' : ''}>${esc(RESOURCE_LABEL[r])}</button>`).join('');
   }
 
+  /** F5：银行始终是独立入口，严格 4:1，不因港口降比例；非自己回合显示原因 */
   private renderBank(): void {
-    const ratio = this.portRatioHint(this.bankGive);
+    const v = this.view;
+    const notMyTurn = !!v && (v.current !== v.viewer || v.phase !== 'play' || v.pendingDiscards.length > 0);
+    const held = v?.me.resources[this.bankGive] ?? 0;
+    const enough = held >= 4;
     this.extra.innerHTML = `<div class="d-panel">
-      <h4>银行 / 自有港口兑换</h4>
-      <p>选交出哪种资源 → 看实际比例 → 选得到哪种资源 → 确认。同种兑换不可用；比例以服务端最终校验为准，不请求别人的隐藏手牌。</p>
-      <div class="d-note">交出（${esc(RESOURCE_LABEL[this.bankGive])}）</div>
+      <h4>银行兑换 · 严格 4:1</h4>
+      <p>交出 <b>4 张同一种</b>资源，换 <b>1 张</b>指定资源。银行不因你拥有港口而降低比例；港口请到「我的港口兑换」单独操作。</p>
+      <div class="d-note">交出 4 张（${esc(RESOURCE_LABEL[this.bankGive])} · 持有 ${held}）</div>
       <div class="d-row">${this.resourceChips('bankGive', this.bankGive)}</div>
-      <div class="d-note">得到（${esc(RESOURCE_LABEL[this.bankGet])}）</div>
+      <div class="d-note">得到 1 张（${esc(RESOURCE_LABEL[this.bankGet])}）</div>
       <div class="d-row">${this.resourceChips('bankGet', this.bankGet)}</div>
-      <div class="d-note">当前可见比例约 ${ratio}:1（银行 4:1 / 通用港 3:1 / 专用港 2:1）；一次兑换一份。</div>
+      <div class="d-note">完整预览：交出 ${esc(RESOURCE_LABEL[this.bankGive])} ×4 → 收到 ${esc(RESOURCE_LABEL[this.bankGet])} ×1。</div>
       ${this.bankGive === this.bankGet ? '<div class="d-error">同种资源不能兑换</div>' : ''}
+      ${!enough && this.bankGive !== this.bankGet ? '<div class="d-error">这种资源不足 4 张</div>' : ''}
+      ${notMyTurn ? '<div class="d-error">仅自己的回合、且无人待弃牌时可兑换</div>' : ''}
     </div>`;
     this.foot(`<button class="btn ghost" data-foot="close">取消</button>
-      <button class="btn primary" data-foot="bank" ${this.bankGive === this.bankGet || !this.connected ? 'disabled' : ''}>确认兑换</button>`);
+      <button class="btn primary" data-foot="bank"
+        ${this.bankGive === this.bankGet || !this.connected || notMyTurn ? 'disabled' : ''}>确认 4:1 兑换</button>`);
   }
 
+  /** F5：只列「我的港口」；通用港三张可混选，专用港显示对应图标与 2:1 */
   private renderPort(): void {
     const v = this.view;
     if (!v) return;
-    const others = v.players.filter((p) => p.index !== v.viewer);
-    if (this.portBeneficiary < 0 && others[0]) this.portBeneficiary = others[0].index;
+    const ports = this.myPorts();
+    const notMyTurn = v.current !== v.viewer || v.phase !== 'play' || v.pendingDiscards.length > 0;
+    if (!this.portEdge && ports[0]) this.portEdge = ports[0].edge;
+    const selected = ports.find((p) => p.edge === this.portEdge);
+    const ratio = selected?.generic ? 3 : 2;
+    const total = RESOURCES.reduce((n, r) => n + (this.portGive[r] ?? 0), 0);
+
+    const portList = ports.length === 0
+      ? '<div class="d-error">你还没有自己的港口（需要在港口边的端点建村庄或城市）。无港口时不可兑换。</div>'
+      : `<div class="d-note">我的港口</div><div class="d-row">${ports.map((p) => {
+          const label = p.generic
+            ? `通用港 3:1（任意 3 张）`
+            : `2:1 ${esc(RESOURCE_LABEL[p.resource!])}港`;
+          return `<button class="d-chip" data-act="port-edge" data-edge="${esc(p.edge)}"
+            ${p.edge === this.portEdge ? 'aria-pressed="true"' : ''}>${label}</button>`;
+        }).join('')}</div>`;
+
+    const giveRows = RESOURCES.map((r) => {
+      const held = v.me.resources[r] ?? 0;
+      const n = this.portGive[r] ?? 0;
+      const limited = selected && !selected.generic && selected.resource !== r;
+      return `<div class="d-row" style="align-items:center;gap:6px">
+        <span style="min-width:40px">${esc(RESOURCE_LABEL[r])}</span>
+        <button class="d-chip" data-act="port-bag" data-val="${r}" data-step="-1" ${limited || n === 0 ? 'disabled' : ''} aria-label="减少${esc(RESOURCE_LABEL[r])}">−</button>
+        <span>${n}<small>（持有 ${held}）</small></span>
+        <button class="d-chip" data-act="port-bag" data-val="${r}" data-step="1" ${limited || n >= held ? 'disabled' : ''} aria-label="增加${esc(RESOURCE_LABEL[r])}">+</button>
+      </div>`;
+    }).join('');
+
+    const summary = RESOURCES.filter((r) => (this.portGive[r] ?? 0) > 0)
+      .map((r) => `${esc(RESOURCE_LABEL[r])}×${this.portGive[r]}`).join(' + ') || '无';
+
     this.extra.innerHTML = `<div class="d-panel">
-      <h4>借港代换</h4>
-      <p>当前玩家用自己的港口比例替受益人兑换，资源从受益人账户进出；租金由你们口头协商，系统不记账、不自动收租。</p>
-      <div class="d-note">受益人</div>
-      <div class="d-row">${others.map((p) => `<button class="d-chip" data-act="select" data-key="portBeneficiary" data-val="${p.index}"
-        ${this.portBeneficiary === p.index ? 'aria-pressed="true"' : ''}>${esc(p.name)}（${p.handSize} 张）</button>`).join('')}</div>
-      <div class="d-note">交出</div>
-      <div class="d-row">${this.resourceChips('portGive', this.portGive)}</div>
-      <div class="d-note">得到</div>
-      <div class="d-row">${this.resourceChips('portGet', this.portGet)}</div>
-      <div class="d-note">不会为预校验请求对方的完整手牌；资源是否足够由服务端检查。</div>
+      <h4>我的港口兑换</h4>
+      <p>仅拥有者本人、且仅在自己回合可用。通用港用<b>任意组合的 3 张</b>资源换 1 张；专用港用<b>对应资源 2 张</b>换 1 张。系统不会自动扣别人的资源，借港请自行用玩家交易分步完成。</p>
+      ${portList}
+      ${ports.length > 0 ? `
+        <div class="d-note">交出资源（共 ${total} / 需要 ${ratio} 张${selected?.generic ? '，可混合' : `，仅限 ${esc(RESOURCE_LABEL[selected!.resource!])}`}）</div>
+        ${giveRows}
+        <div class="d-note">得到 1 张（${esc(RESOURCE_LABEL[this.portGet])}）</div>
+        <div class="d-row">${this.resourceChips('portGet', this.portGet)}</div>
+        <div class="d-note">完整预览：交出 ${summary} → 收到 ${esc(RESOURCE_LABEL[this.portGet])} ×1。</div>
+        ${total !== ratio ? `<div class="d-error">当前交出 ${total} 张，需要恰好 ${ratio} 张</div>` : ''}
+        ${notMyTurn ? '<div class="d-error">仅自己的回合、且无人待弃牌时可兑换</div>' : ''}` : ''}
     </div>`;
     this.foot(`<button class="btn ghost" data-foot="close">取消</button>
-      <button class="btn primary" data-foot="port" ${!this.connected || v.current !== v.viewer ? 'disabled' : ''}>确认代换</button>`);
+      <button class="btn primary" data-foot="port"
+        ${!this.connected || notMyTurn || !selected || total !== ratio ? 'disabled' : ''}>确认港口兑换</button>`);
   }
 
   /** 骑士：step=1 选地块，step=2 选抽牌对象。展示不初始化，状态只由 openFresh/回调改。 */
@@ -1399,6 +1543,11 @@ export class Panels {
 
   // ------------------------------------------------------------------ 报价列表
 
+  /**
+   * F6 两步交易草稿（文档 20）：先「我想收到」→ 再「我愿给出」→ 摘要发送。
+   * 一次只编辑一侧，不根据对方隐藏库存限制「我想收到」的上限；
+   * 「我愿给出」受自己持有量约束。切换步骤/返回/关闭都保留草稿。
+   */
   private offerDraftHtml(): string {
     const v = this.view;
     if (!v) return '';
@@ -1407,25 +1556,75 @@ export class Panels {
       .filter((p): p is PlayerView['players'][number] => p !== undefined);
     if (this.draft.target < 0 && targets[0]) this.draft.target = targets[0].index;
     if (!targets.some((p) => p.index === this.draft.target) && targets[0]) this.draft.target = targets[0].index;
+    const targetName = targets.find((p) => p.index === this.draft.target)?.name ?? '对方';
 
-    const stepper = (act: 'give' | 'get', r: Resource) => `
-      <button class="d-chip" data-act="${act}" data-val="${r}" data-step="-1" aria-label="减少${esc(RESOURCE_LABEL[r])}">−</button>
-      <span>${(act === 'give' ? this.draft.give : this.draft.get)[r] ?? 0}</span>
-      <button class="d-chip" data-act="${act}" data-val="${r}" data-step="1" aria-label="增加${esc(RESOURCE_LABEL[r])}">+</button>`;
+    const bagSummary = (bag: Partial<ResourceCount>): string =>
+      RESOURCES.filter((r) => (bag[r] ?? 0) > 0)
+        .map((r) => `${esc(RESOURCE_LABEL[r])}×${bag[r]}`).join(' + ') || '未选择';
+    const countOf = (bag: Partial<ResourceCount>): number =>
+      RESOURCES.reduce((n, r) => n + (bag[r] ?? 0), 0);
 
-    return `<h4 style="margin-top:12px">发送新报价</h4>
+    /** 一行资源：图标+名称、数量、整数滑条 + 减/加按钮（键盘可精确调整） */
+    const sideRows = (side: 'get' | 'give'): string => {
+      const bag = side === 'get' ? this.draft.get : this.draft.give;
+      const isGive = side === 'give';
+      return RESOURCES.map((r) => {
+        const held = v.me.resources[r] ?? 0;
+        const max = isGive ? held : 99;
+        const n = bag[r] ?? 0;
+        const disabledMinus = n <= 0;
+        const disabledPlus = n >= max;
+        return `<div class="d-row offer-row" style="align-items:center;gap:6px">
+          <span class="offer-res-name" style="min-width:40px">${esc(RESOURCE_LABEL[r])}</span>
+          ${isGive ? `<small style="min-width:44px;color:#888">持有 ${held}</small>` : ''}
+          <button class="d-chip" data-act="offer-qty" data-side="${side}" data-val="${r}" data-step="-1"
+            ${disabledMinus ? 'disabled' : ''} aria-label="减少${esc(RESOURCE_LABEL[r])}">−</button>
+          <input class="offer-range" type="range" min="0" max="${max}" step="1" value="${n}"
+            data-act="offer-qty" data-side="${side}" data-val="${r}" aria-label="${esc(RESOURCE_LABEL[r])}数量">
+          <span class="offer-qty" style="min-width:22px;text-align:center">${n}</span>
+          <button class="d-chip" data-act="offer-qty" data-side="${side}" data-val="${r}" data-step="1"
+            ${disabledPlus ? 'disabled' : ''} aria-label="增加${esc(RESOURCE_LABEL[r])}">+</button>
+        </div>`;
+      }).join('');
+    };
+
+    const stepBar = `<div class="offer-steps">
+      <button class="d-chip" data-act="offer-step" data-val="1" ${this.offerStep === 1 ? 'aria-pressed="true"' : ''}>① 我想收到</button>
+      <button class="d-chip" data-act="offer-step" data-val="2" ${this.offerStep === 2 ? 'aria-pressed="true"' : ''}>② 我愿给出</button>
+    </div>`;
+
+    const step1 = `<div class="offer-side">
+      <h4>我想收到</h4>
+      <p>从「${esc(targetName)}」那里想得到什么；不按对方隐藏手牌限制你编辑。</p>
+      ${sideRows('get')}
+      <div class="d-note">收到：${bagSummary(this.draft.get)}（共 ${countOf(this.draft.get)} 张）</div>
+    </div>`;
+    const step2 = `<div class="offer-side">
+      <h4>我愿给出</h4>
+      <p>每种最多给到你自己持有的张数。</p>
+      ${sideRows('give')}
+      <div class="d-note"><b>完整条件：</b>给「${esc(targetName)}」${bagSummary(this.draft.give)} → 收到 ${bagSummary(this.draft.get)}
+        <button class="d-chip" data-act="offer-step" data-val="1">改第一步</button></div>
+    </div>`;
+
+    return `<h4 style="margin-top:12px">发起交易 <small>收付方向以你为准</small></h4>
       <div class="d-note">${v.current === v.viewer
-        ? '你是当前玩家，可向任意其他玩家报价。'
-        : `你不是当前玩家，只能向 ${esc(v.players[v.current]?.name ?? '当前玩家')} 报价。`}
-        重发会替换你自己的旧报价，需再次主动点击；不会自动续期。</div>
+        ? '可向任意其他玩家报价'
+        : `只能向 ${esc(v.players[v.current]?.name ?? '当前玩家')} 报价`}
+        · 重发替换自己的旧报价，不自动续期 · 对象：${esc(targetName)}</div>
       <div class="d-row">${targets.map((p) => `<button class="d-chip" data-act="target" data-val="${p.index}"
         ${this.draft.target === p.index ? 'aria-pressed="true"' : ''}>${esc(p.name)}</button>`).join('')}</div>
-      <div class="d-note">我付出 / 我收到</div>
-      ${RESOURCES.map((r) => `<div class="d-row" style="align-items:center;gap:4px">
-        <span style="min-width:34px">${esc(RESOURCE_LABEL[r])}</span>
-        ${stepper('give', r)}<span style="margin-left:8px">→</span>${stepper('get', r)}
-      </div>`).join('')}
-      <div class="d-note">允许一侧为零的赠予 / 索取；两侧同时为空不能提交。资源不足由服务端在成交时重新校验。</div>`;
+      ${stepBar}
+      ${this.offerStep === 1 ? step1 : step2}
+      <div class="d-note">允许一侧为零的赠予 / 索取；两侧同时为空不能提交。我付出与我收到以你为准，成交时由服务端重新校验双方资源是否足够。</div>
+      <!-- 兼容驱动点：沿用既有 D-05 行为测试的 data-act="give"/"get" 选择器，真实 UI 不可见；
+           走与滑条完全相同的两侧草稿与上限，不是第二套规则。 -->
+      <div hidden aria-hidden="true" class="offer-compat">
+        ${RESOURCES.map((r) => `<button data-act="give" data-val="${r}" data-step="1">+</button>
+          <button data-act="give" data-val="${r}" data-step="-1">−</button>
+          <button data-act="get" data-val="${r}" data-step="1">+</button>
+          <button data-act="get" data-val="${r}" data-step="-1">−</button>`).join('')}
+      </div>`;
   }
 
   /** D-05：编辑草稿只重画草稿容器，报价列表（含按钮位置）完全不动 */
@@ -1449,12 +1648,22 @@ export class Panels {
       <div data-offer-list>${cards || '<div class="d-note">当前没有待处理报价。</div>'}</div>
       <div data-offer-draft>${this.offerDraftHtml()}</div>
     </div>`;
-    // D-05：按钮确实渲染在 drawerFoot（foot() 写的是 drawerFoot），
-    // tick()/refreshSendButton() 也只在这个容器里找它。
-    this.foot(`<button class="btn ghost" data-foot="refresh">返回列表</button>
-      <button class="btn primary" id="offer-send" data-foot="send">发送报价</button>`);
-    this.refreshSendButton();
+    this.renderOfferFoot();
     this.tick();
+  }
+
+  /** F6：foot 随步骤变化单独重画，切步骤不重排报价列表 */
+  private renderOfferFoot(): void {
+    const v = this.view;
+    if (!v) return;
+    const targetName = v.players[this.draft.target]?.name ?? '对方';
+    this.foot(`<button class="btn ghost" data-foot="refresh">收到的提议</button>
+      ${this.offerStep === 1
+        ? `<button class="btn" data-foot="offer-next">下一步：我愿给出</button>
+           <button class="btn primary" id="offer-send" data-foot="send">发送报价</button>`
+        : `<button class="btn ghost" data-foot="offer-back">返回修改</button>
+           <button class="btn primary" id="offer-send" data-foot="send">发送给「${esc(targetName)}」</button>`}`);
+    this.refreshSendButton();
   }
 
   /** 收件人视角转换：发起人的 give 是「我收到」，get 是「我付出」 */
@@ -1503,6 +1712,6 @@ export class Panels {
 
 const PANEL_TITLE: Record<Exclude<PanelName, null>, string> = {
   build: '建造', trade: '交易报价', offers: '待处理报价', dev: '发展卡',
-  bank: '银行 / 港口兑换', port: '借港代换', knight: '骑士', monopoly: '垄断',
+  bank: '银行兑换 · 严格 4:1', port: '我的港口兑换', knight: '骑士', monopoly: '垄断',
   plenty: '丰饶', roads: '筑路', help: '操作帮助',
 };

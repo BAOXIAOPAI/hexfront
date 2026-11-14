@@ -12,6 +12,7 @@ import {
   decodeServerMessage,
   encodeClient,
   PROTOCOL_VERSION,
+  type BoardKind,
   type ClientMessage,
   type ServerMessage,
 } from '@hexfront/protocol';
@@ -71,6 +72,10 @@ export interface ClientHandlers {
 export interface Identity {
   roomId: string;
   name: string;
+  /** F1：CREATE 时由房主设定的目标人数（4–8）；JOIN 与重连绝不带 */
+  players?: number;
+  /** F1：本次连接是否走显式 CREATE（仅创建房间的第一条链路为 true） */
+  intent?: 'create' | 'join';
 }
 
 export class GameClient {
@@ -243,13 +248,59 @@ export class GameClient {
     this.transmit({ t: 'PING' });
   }
 
+  /**
+   * F1：每次建链的第一条入座消息由 intent 决定。
+   * - 'create' → 发 CREATE（带人数），服务端原子创建并授予本连接房主；
+   *   创建成功后把 intent 降级为 'join'，后续任何重连都只发 JOIN，绝不重复创建。
+   * - 'join'（默认）→ 只发 JOIN；房间不存在由服务端回 ROOM_NOT_FOUND，绝不隐式创建。
+   * JOIN/CREATE 是链路消息，不能被 reconcile 闸门挡住。
+   */
   join(): void {
-    // JOIN 是重连链路本身，不能被 reconcile 闸门挡住
-    this.transmit({ t: 'JOIN', roomId: this.identity.roomId, name: this.identity.name, v: PROTOCOL_VERSION });
+    if (this.identity.intent === 'create') {
+      this.transmit({
+        t: 'CREATE', roomId: this.identity.roomId, name: this.identity.name, v: PROTOCOL_VERSION,
+        ...(this.identity.players === undefined ? {} : { players: this.identity.players }),
+      });
+      // 只在首次成功后由 WELCOME 处理降级；这里先不预置，避免创建失败被永久降级。
+      return;
+    }
+    this.transmit({
+      t: 'JOIN', roomId: this.identity.roomId, name: this.identity.name, v: PROTOCOL_VERSION,
+    });
   }
 
-  start(): void {
-    this.send({ t: 'START' });
+  /** WELCOME 到达：创建链路完成，后续重连一律按 JOIN 回原座位 */
+  markJoined(): void {
+    this.identity = { ...this.identity, intent: 'join', players: undefined };
+  }
+
+  start(configVersion?: number): void {
+    this.send({ t: 'START', ...(configVersion === undefined ? {} : { configVersion }) });
+  }
+
+  // ---- F2：人数与手动选图分成两条独立消息 ----
+  setPlayerCount(targetPlayers: number, configVersion: number): void {
+    this.send({ t: 'SET_PLAYER_COUNT', targetPlayers, configVersion });
+  }
+
+  setBoard(board: BoardKind, configVersion: number): void {
+    this.send({ t: 'SET_BOARD', board, configVersion });
+  }
+
+  rerollMap(configVersion: number): void {
+    this.send({ t: 'REROLL_MAP', configVersion });
+  }
+
+  ready(value: boolean): void {
+    this.send({ t: 'READY', ready: value });
+  }
+
+  setOrder(order: number[], configVersion: number): void {
+    this.send({ t: 'SET_ORDER', order, configVersion });
+  }
+
+  randomizeOrder(configVersion: number): void {
+    this.send({ t: 'RANDOMIZE_ORDER', configVersion });
   }
 
   command(cmd: Command): void {
@@ -351,6 +402,8 @@ export class GameClient {
       // 先把 WELCOME 的权威 view / snapshot / stateSeq 交给 UI 落地，再宣布核对完成
       this.handlers.onMessage(msg);
       if (msg.t === 'WELCOME') {
+        // F1：创建链路已完成；之后所有重连都按 JOIN 回原座位，绝不重复 CREATE
+        this.markJoined();
         this.seatTakenRetries = 0;
         this.finishReconcile();
       }

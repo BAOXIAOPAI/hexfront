@@ -53,12 +53,14 @@ class FakeSocket {
   }
 }
 
-const WELCOME: ServerMessage = {
+const WELCOME: Extract<ServerMessage, { t: 'WELCOME' }> = {
   t: 'WELCOME', roomId: 'main', seat: 0, capacity: 4,
-  players: [{ seat: 0, name: 'tester', connected: true }],
+  players: [{ seat: 0, name: 'tester', connected: true, ready: false }],
   view: null,
   snapshot: { offers: [], version: 3, serverTime: 1000, nextSendAt: {} },
   stateSeq: 42,
+  lobby: null, map: null, timer: null,
+  settings: { setupGrant: true },
 };
 
 let socketCtor: typeof WebSocket;
@@ -196,7 +198,7 @@ describe('D-06 · 前台恢复链路', () => {
     const first = last();
     client.resume();
     const second = settle(RESUME_PROBE_TIMEOUT_MS + 10);
-    const stale: ServerMessage = {
+    const stale: Extract<ServerMessage, { t: 'WELCOME' }> = {
       ...WELCOME,
       snapshot: {
         offers: [],                      // 服务端 snapshot() 已 pruneExpired

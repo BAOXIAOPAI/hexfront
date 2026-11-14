@@ -7,7 +7,7 @@
  * 顶点与边以像素坐标的定点整数作为 key，避免浮点误差导致的重复。
  */
 
-import type { Point, Terrain } from './types.js';
+import type { Point, Terrain, Port } from './types.js';
 
 export const HEX_SIZE = 56;
 const SQRT3 = Math.sqrt(3);
@@ -199,6 +199,13 @@ export interface MapSpec {
   label: string;
   rows: number[];
   tiles: Record<string, MapTileDef>;
+  /** 港口槽位由生成器固定；不传时 createGame 走 computePorts 的默认推导（标准盘） */
+  ports?: { edge: string; port: Port }[];
+  /** 强盗初始地块（沙漠）；不传时 createGame 取第一个沙漠 */
+  robberTile?: string;
+  /** 地图种子与生成器版本，仅用于地图，绝不复用为骰子/发展卡随机源 */
+  seed?: string;
+  generatorVersion?: number;
 }
 
 /**

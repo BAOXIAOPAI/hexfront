@@ -8,7 +8,7 @@ import {
   buyDevCard, playKnight, playMonopoly, playPlenty, playRoadBuilding, moveRobber,
 } from './rules/dev.js';
 import { recomputeLongestRoad, recomputeLargestArmy, findWinner, scoreOf } from './rules/score.js';
-import { tradePlayer, tradeBank, portTransfer } from './rules/trade.js';
+import { tradePlayer, tradeBank, tradePort } from './rules/trade.js';
 
 function dispatch(board: Board, state: GameState, cmd: Command): ApplyResult {
   switch (cmd.type) {
@@ -36,8 +36,8 @@ function dispatch(board: Board, state: GameState, cmd: Command): ApplyResult {
       return tradePlayer(board, state, cmd);
     case 'TRADE_BANK':
       return tradeBank(board, state, cmd);
-    case 'PORT_TRANSFER':
-      return portTransfer(board, state, cmd);
+    case 'TRADE_PORT':
+      return tradePort(board, state, cmd);
     case 'DISCARD':
       return discardCards(board, state, cmd);
     case 'MOVE_ROBBER':
@@ -75,7 +75,7 @@ export function applyCommand(board: Board, state: GameState, cmd: Command): Appl
     return { ok: false, reason: 'DISCARD_PENDING' };
   }
   // ② 强盗待移动阶段（指南 8.2 已确认的行动矩阵）：
-  //    全员弃完后恢复建造 / 银行 / 借港 / 玩家交易，只有发展卡与结束回合继续禁用。
+  //    全员弃完后恢复建造 / 银行 / 港口 / 玩家交易，只有发展卡与结束回合继续禁用。
   //    发展卡禁用是为了避免骑士二次移动及其他结算冲突；结束回合仍需完成强盗结算。
   //    这里由引擎裁决，服务端不能只靠前端禁用按钮。
   if (!discarding && state.pendingRobber && ROBBER_BLOCKED.has(cmd.type)) {

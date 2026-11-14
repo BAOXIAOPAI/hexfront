@@ -132,10 +132,10 @@ describe('掷 7 → 移动强盗 → 抽牌', () => {
     expect(bank.ok).toBe(true);
     if (bank.ok) expect(bank.state.players[0]!.resources.brick).toBeGreaterThan(after.players[0]!.resources.brick);
 
-    // 建造 / 借港 / 玩家交易即使因资源或位置被拒，也不能是 ROBBER_PENDING
+    // 建造 / 港口 / 玩家交易即使因资源或位置被拒，也不能是 ROBBER_PENDING
     const released: Command[] = [
       { type: 'BUILD_ROAD', seat: 0, edge: board.geo.edgeKeys[0]! },
-      { type: 'PORT_TRANSFER', seat: 0, beneficiary: 1, give: 'wood', get: 'brick' },
+      { type: 'TRADE_PORT', seat: 0, port: 'x|y', give: { wood: 1 }, get: 'brick' },
       { type: 'TRADE_PLAYER', seat: 0, withPlayer: 1, give: { wood: 1 }, get: {} },
     ];
     for (const cmd of released) {

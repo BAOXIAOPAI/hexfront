@@ -26,8 +26,8 @@ describe('第 1 / 7.2 节：产品决定的数值契约', () => {
     expect(MAX_LIVE_OFFERS_PER_PLAYER).toBe(1);
   });
 
-  it('协议版本升到 2，不兼容升级必须能被识别', () => {
-    expect(PROTOCOL_VERSION).toBe(2);
+  it('协议版本升到 4（文档 24 显式创建/银行港口拆分），不兼容升级必须能被识别', () => {
+    expect(PROTOCOL_VERSION).toBe(4);
   });
 });
 

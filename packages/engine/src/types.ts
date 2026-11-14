@@ -12,7 +12,13 @@ export type Terrain = (typeof TERRAINS)[number];
 export const DEV_CARDS = ['knight', 'victory', 'monopoly', 'plenty', 'roadbuilding'] as const;
 export type DevCard = (typeof DEV_CARDS)[number];
 
-export const PLAYER_COLORS = ['red', 'blue', 'white', 'orange'] as const;
+/**
+ * 文档 23 L-3：玩家颜色扩展到 8 种，支撑 4–8 人房间。
+ * 颜色只是第一通道；桌面玩家条、棋盘建筑、道路虚线还需配合名称/纹样（见 theme.ts）。
+ */
+export const PLAYER_COLORS = [
+  'red', 'blue', 'white', 'orange', 'purple', 'teal', 'pink', 'slate',
+] as const;
 export type PlayerColor = (typeof PLAYER_COLORS)[number];
 
 /** 港口：3:1 通用，或 2:1 指定资源 */

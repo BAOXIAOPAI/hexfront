@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { buildBoard, MAP_4P } from '@hexfront/engine';
 import { Room, RoomRegistry, normalizeRoomId } from '../src/room.js';
-import { FakeSocket, driveSetup } from './helpers.js';
+import { FakeSocket, driveSetup, FIXTURE_ROOM_OPTIONS } from './helpers.js';
 import type { ServerMessage } from '../src/protocol.js';
 
 // 验收需要可复现的骰子；真实环境默认关闭（见 room.command 里的剥离逻辑）
 process.env.HEXFONT_FAKE_DICE = '1';
 
 function twoSeatRoom(): { room: Room; a: FakeSocket; b: FakeSocket } {
-  const room = new Room('r1', { capacity: 2 });
+  // 固定棋盘：旧交易/视角断言依赖确定性资源发放，不受随机地图影响
+  const room = new Room('r1', {
+    ...FIXTURE_ROOM_OPTIONS, capacity: 2, board: buildBoard(MAP_4P),
+  });
   const a = new FakeSocket('a');
   const b = new FakeSocket('b');
   expect(room.join('阿甲', a).ok).toBe(true);
@@ -144,7 +148,7 @@ describe('交易报价（阶段 C：ID + 快照）', () => {
 
 describe('入座', () => {
   it('按顺序分配座位', () => {
-    const room = new Room('r', { capacity: 4 });
+    const room = new Room('r', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     const seats = ['甲', '乙', '丙'].map((n) => {
       const r = room.join(n, new FakeSocket(n));
       return r.ok ? r.seat : -1;
@@ -154,7 +158,8 @@ describe('入座', () => {
   });
 
   it('满员后拒绝新玩家', () => {
-    const room = new Room('r', { capacity: 2 });
+    // 不自动开局，才能单独验证「房间容量已满」这一分支
+    const room = new Room('r', { capacity: 2, minPlayers: 2, skipReadyCheck: true });
     room.join('甲', new FakeSocket());
     room.join('乙', new FakeSocket());
     const third = room.join('丙', new FakeSocket());
@@ -168,27 +173,32 @@ describe('入座', () => {
     expect(room.game?.phase).toBe('setup');
   });
 
-  it('未满员时可由房主手动开局，之后不再进人', () => {
-    const room = new Room('r', { capacity: 4 });
+  it('未满员时房主也不能开始；满员后仍需准备，不自动开局', () => {
+    // 文档 23 L-1：取消满员自动开局、必须满目标人数且全员准备。
+    // 这里用「不自动开局」的产品式夹具验证这条边界。
+    const room = new Room('r', { capacity: 4, minPlayers: 4 });
     room.join('甲', new FakeSocket());
     room.join('乙', new FakeSocket());
     expect(room.started).toBe(false);
+    expect(room.start(0, room.lobbyConfig().configVersion)).toEqual({ ok: false, reason: 'NOT_ENOUGH_PLAYERS' });
+    expect(room.started).toBe(false);
 
-    expect(room.start()).toEqual({ ok: true });
-    expect(room.started).toBe(true);
-
-    const late = room.join('丙', new FakeSocket());
-    expect(late).toEqual({ ok: false, reason: 'IN_PROGRESS' });
+    room.join('丙', new FakeSocket());
+    room.join('丁', new FakeSocket());
+    // 满员但没有准备：仍不能开始，也没有自动开局
+    expect(room.started).toBe(false);
+    expect(room.start(0, room.lobbyConfig().configVersion)).toEqual({ ok: false, reason: 'NOT_ALL_READY' });
+    expect(room.started).toBe(false);
   });
 
-  it('不足两人不允许开局', () => {
-    const room = new Room('r', { capacity: 4 });
+  it('少于产品最少人数不允许开局', () => {
+    const room = new Room('r', { capacity: 4, minPlayers: 4 });
     room.join('甲', new FakeSocket());
-    expect(room.start()).toEqual({ ok: false, reason: 'NEED_MORE_PLAYERS' });
+    expect(room.start(0, room.lobbyConfig().configVersion)).toEqual({ ok: false, reason: 'NOT_ENOUGH_PLAYERS' });
   });
 
   it('同名重连回到原座位', () => {
-    const room = new Room('r', { capacity: 4 });
+    const room = new Room('r', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     const a = new FakeSocket();
     expect(room.join('甲', a).ok).toBe(true);
     room.leave(0);
@@ -204,7 +214,7 @@ describe('入座', () => {
   });
 
   it('同名但原座位在线时不允许顶号', () => {
-    const room = new Room('r', { capacity: 4 });
+    const room = new Room('r', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     room.join('甲', new FakeSocket('a1'));
     const hijack = room.join('甲', new FakeSocket('a2'));
     expect(hijack).toEqual({ ok: false, reason: 'SEAT_TAKEN' });
@@ -226,7 +236,7 @@ describe('入座', () => {
 
 describe('命令裁决', () => {
   it('未开局时拒绝命令', () => {
-    const room = new Room('r', { capacity: 4 });
+    const room = new Room('r', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     const a = new FakeSocket();
     room.join('甲', a);
     const out = room.command(0, { type: 'ROLL_DICE', seat: 0, dice: [1, 2] });
@@ -320,7 +330,7 @@ describe('房间号', () => {
   });
 
   it('登记表复用同一房间，并限制房间总量', () => {
-    const reg = new RoomRegistry({ capacity: 2, maxRooms: 1 });
+    const reg = new RoomRegistry({ ...FIXTURE_ROOM_OPTIONS, capacity: 2, maxRooms: 1 });
     const first = reg.getOrCreate('a');
     expect(first).not.toBeNull();
     expect(reg.getOrCreate('a')).toBe(first);
@@ -330,7 +340,7 @@ describe('房间号', () => {
 
 describe('广播报文', () => {
   it('未开局推 LOBBY，开局后推 STATE', () => {
-    const room = new Room('r', { capacity: 4 });
+    const room = new Room('r', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     const a = new FakeSocket();
     room.join('甲', a);
     room.sync();
@@ -338,7 +348,10 @@ describe('广播报文', () => {
     expect(lobby).toBeDefined();
 
     room.join('乙', new FakeSocket());
-    room.start();
+    room.join('丙', new FakeSocket());
+    room.join('丁', new FakeSocket());
+    // 夹具：4 人满员自动开局；产品默认由房主手动开始
+    expect(room.started).toBe(true);
     a.clear();
     room.sync();
     expect(a.states).toHaveLength(1);
@@ -348,35 +361,40 @@ describe('广播报文', () => {
 
 describe('房间级设置：开局前可改、开局后锁定', () => {
   it('设置被写进 GameState，开局后不可再改', () => {
-    const room = new Room('settings', { capacity: 4 });
+    const room = new Room('settings', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     const a = new FakeSocket('a');
     const b = new FakeSocket('b');
     expect(room.join('甲', a).ok).toBe(true);
     expect(room.settingsLocked).toBe(false);
-    expect(room.setSettings({ setupGrant: false })).toBe(true);
+    // 文档 23：只有房主能改房间级设置
+    expect(room.setSettings({ setupGrant: false }, 0)).toBe(true);
     expect(room.roomSettings.setupGrant).toBe(false);
 
     expect(room.join('乙', b).ok).toBe(true);
-    expect(room.start().ok).toBe(true);
+    room.join('丙', new FakeSocket('c'));
+    room.join('丁', new FakeSocket('d'));
+    expect(room.started).toBe(true); // 夹具满员自动开局
     expect(room.game!.setupGrant).toBe(false);
     expect(room.settingsLocked).toBe(true);
-    expect(room.setSettings({ setupGrant: true })).toBe(false);
+    expect(room.setSettings({ setupGrant: true }, 0)).toBe(false);
     expect(room.roomSettings.setupGrant).toBe(false);
   });
 
   it('广播把权威设置推给所有在座玩家，locked 随开局变化', () => {
-    const room = new Room('settings2', { capacity: 4 });
+    const room = new Room('settings2', { ...FIXTURE_ROOM_OPTIONS, capacity: 4 });
     const a = new FakeSocket('a');
     const b = new FakeSocket('b');
     room.join('甲', a);
     room.join('乙', b);
-    room.setSettings({ setupGrant: false });
+    room.setSettings({ setupGrant: false }, 0);
     room.broadcastSettings();
     for (const s of [a, b]) {
       const msg = s.sent.filter((m) => m.t === 'SETTINGS').at(-1);
       expect(msg).toMatchObject({ t: 'SETTINGS', settings: { setupGrant: false }, locked: false });
     }
-    room.start();
+    room.join('丙', new FakeSocket('c'));
+    room.join('丁', new FakeSocket('d'));
+    expect(room.started).toBe(true); // 夹具满员自动开局
     a.clear();
     b.clear();
     room.broadcastSettings();

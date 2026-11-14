@@ -138,8 +138,10 @@ export function roadMarkup(x1: number, y1: number, x2: number, y2: number, hex: 
 const road = roadMarkup;
 
 function robber(x: number, y: number): string {
-  // 纸雕强盗 pawn：深墨绿 + 珊瑚围巾 + 奶油高光，不挡住中心数字（画在数字片之上会遮，故置于建筑之后、数字之前）。
-  return `<g transform="translate(${x},${y + 2}) scale(1.15)" filter="url(#soft)">
+  // 纸雕强盗 pawn：深墨绿 + 珊瑚围巾 + 奶油高光。
+  // F4 复验：原实现画在 tile 中心（y+2），pawn 高约 -15~+16，会整个盖住半径 18.4 的数字圆片，
+  // 让「这块地有没有数字、是几」都读不出来。现缩小并移到地块右下角，明确不压数字与概率点。
+  return `<g data-role="robber" transform="translate(${x + 24},${y + 22}) scale(0.82)" filter="url(#soft)">
     <ellipse cx="0" cy="16" rx="11" ry="3" fill="${INK_DEEP}" opacity=".3"/>
     <path d="M-10,14 L-8.5,-1 Q-7.5,-7 -3.5,-8 L-2.8,-11 A4.8,4.8 0 1 1 2.8,-11 L3.5,-8 Q7.5,-7 8.5,-1 L10,14 Z" fill="#2A4036" stroke="#16261E" stroke-width="1.2" stroke-linejoin="round"/>
     <path d="M-8.5,0 Q0,4 8.5,0 L8.5,3 Q0,7 -8.5,3 Z" fill="${HOT}" stroke="#7E3626" stroke-width=".8"/>
@@ -167,7 +169,11 @@ function tileMarkup(tile: PublicTile, geo: Geometry, glow: boolean): string {
   g += `<polygon points="${pts}" fill="${fill}" stroke="${INK_DEEP}" stroke-width="2.6" stroke-linejoin="round"/>`;
   g += `<polygon points="${pts}" fill="url(#grain)"/>`;
   g += `<polygon points="${polygonPoints(corners, t.x, t.y, 0.965)}" fill="none" stroke="${lite}" stroke-width="1.6" stroke-linejoin="round" opacity=".55"/>`;
-  g += terrainDecor(terrain, t.x, t.y - 4);
+  // 地形装饰：必须完全避开中央数字圆片（含描边占 t.y±20）。
+  // 装饰原始偏移范围约 ±32，直接放在中心会把羊/麦穗/风车压在数字上；
+  // 这里整体缩到 0.78 并下移 22，让装饰落在圆片下方的环带里，
+  // 既保留「地块有地形插画」的观感，又不遮数字与概率点（F4 复验发现的真实缺陷）。
+  g += terrainDecor(terrain, t.x, t.y + 72, 0.56);
 
   // 产出高亮：叠一层暖白光 + 描边脉冲，压在数字与装饰之上、道路与建筑之下
   if (glow) {
@@ -178,17 +184,26 @@ function tileMarkup(tile: PublicTile, geo: Geometry, glow: boolean): string {
   if (tile.number !== null) {
     const hot = tile.number === 6 || tile.number === 8;
     const ink = hot ? HOT : INK_DEEP;
-    // 数字圆片：奶油纸 + 深墨纸边 + 内圈细线，中心干净；6/8 珊瑚红。
-    g += `<g filter="url(#soft)"><circle cx="${t.x}" cy="${t.y + 3}" r="18.4" fill="${PAPER}" stroke="${INK_DEEP}" stroke-width="2.2"/></g>`;
+    // F4：数字圆片统一以 (t.x, t.y) 为共同中心；纸雕阴影独立绘制（下移 3px 的深色/奶油底片），
+    // 不再让它充当外圈、也不靠 CSS 偏移掩盖几何错误。
+    // 中心 = (t.x, t.y)。装饰/数字不参与指针命中，避免起拖时触发原生文本选择。
+    g += `<g pointer-events="none">`;
+    // 纸雕阴影：独立元素，仅下移 3px 制造纸片厚度，不承担外圈几何中心职责。
+    g += `<g filter="url(#soft)"><circle cx="${t.x}" cy="${t.y + 3}" r="18.4" fill="${PAPER}" stroke="${INK_DEEP}" stroke-width="2.2" opacity=".55"/></g>`;
+    // 外圈主圆：与内圈、数字、6/8 红环同心于 t.y。
+    g += `<circle cx="${t.x}" cy="${t.y}" r="18.4" fill="${PAPER}" stroke="${INK_DEEP}" stroke-width="2.2"/>`;
     g += `<circle cx="${t.x}" cy="${t.y}" r="15.4" fill="none" stroke="${hot ? HOT : INK_DEEP}" stroke-width="1" opacity=".5"/>`;
     if (hot) g += `<circle cx="${t.x}" cy="${t.y}" r="18.4" fill="none" stroke="${HOT}" stroke-width="2" opacity=".55"/>`;
-    g += `<text x="${t.x}" y="${t.y + 1}" font-size="19" font-weight="800" fill="${ink}" text-anchor="middle" dominant-baseline="central" font-family="Georgia,serif">${tile.number}</text>`;
+    // 数字：单/双位都用同一套 y=t.y + central + middle 居中，不给两位数单独偏移。
+    g += `<text x="${t.x}" y="${t.y}" font-size="19" font-weight="800" fill="${ink}" text-anchor="middle" dominant-baseline="central" font-family="Georgia,serif">${tile.number}</text>`;
+    // 概率点排在数字下方，cx 围绕 t.x 对称，cy 用相对共同中心的固定偏移 t.y + 14.5。
     const n = PIPS[tile.number] ?? 0;
     const gap = 4.4;
     const tw = (n - 1) * gap;
     for (let i = 0; i < n; i++) {
       g += `<circle cx="${t.x - tw / 2 + i * gap}" cy="${t.y + 14.5}" r="1.35" fill="${ink}"/>`;
     }
+    g += `</g>`;
   }
   return `${g}</g>`;
 }

@@ -11,8 +11,8 @@
     papercut.css= 最后加载的「晴湾纸雕」桌面主题层，覆盖为 1280×720+ 的纸雕主画面。
     顺序不可调换：dom-contract 对账依赖 styles.css 在 layout.css 之前。
   -->
-  <script type="module" crossorigin src="/assets/index-BuAmdi5d.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-C330pohO.css">
+  <script type="module" crossorigin src="/assets/index-DI1GcVHN.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DGNrUVds.css">
 </head>
 <body data-theme="papercut">
   <!--
@@ -239,6 +239,12 @@
         <button class="btn primary" id="end-back">回到房间</button>
       </div>
     </div>
+  </div>
+
+  <!-- F3 桌面最低视口提示：静态节点，由 panels.syncDesktopGate 按窗口尺寸切换 hidden。
+       不旋转整页、不强制全屏；手机竖屏不显示（历史 ULS 层归档，不作为桌面发布门槛）。 -->
+  <div class="desktop-gate hidden" id="desktop-gate" role="status">
+    请使用电脑并扩大窗口；最低支持 1280×720，推荐 1440×900。
   </div>
 
   <!-- ULS 正立层：故意放在 #shell 之外，不参与 CSS 自转；桌面尺寸下隐藏 -->

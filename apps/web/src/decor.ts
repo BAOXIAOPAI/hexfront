@@ -70,8 +70,9 @@ function smallStone(x: number, y: number, s: number): string {
 }
 
 /** 场景装饰，坐标相对地块中心 */
-export function terrainDecor(kind: Terrain, cx: number, cy: number): string {
-  let g = `<g transform="translate(${cx},${cy})">`;
+export function terrainDecor(kind: Terrain, cx: number, cy: number, scale = 1): string {
+  // scale < 1 时整体缩小：用于把地形插画收进数字圆片外的环带，避免遮挡数字。
+  let g = `<g transform="translate(${cx},${cy}) scale(${scale})">`;
 
   if (kind === 'wood') {
     g += pine(-22, 0, 0.9) + pine(16, -14, 0.74) + pine(-4, -32, 0.64) + pine(24, 12, 0.58);

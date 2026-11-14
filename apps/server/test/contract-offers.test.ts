@@ -6,9 +6,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { buildBoard, MAP_4P } from '@hexfront/engine';
 import { OFFER_SEND_COOLDOWN_MS, OFFER_TTL_MS } from '../src/protocol.js';
 import { Room, type OfferOutcome } from '../src/room.js';
-import { FakeSocket, driveSetup } from './helpers.js';
+import { FakeSocket, driveSetup, FIXTURE_ROOM_OPTIONS } from './helpers.js';
 
 // 验收需要可复现的骰子；真实环境默认关闭（见 room.command 的剥离逻辑）
 process.env.HEXFONT_FAKE_DICE = '1';
@@ -18,7 +19,10 @@ const NAMES = ['甲', '乙', '丙', '丁'];
 /** 满员自动开局 + 走完摆位；每人手牌固定，时钟可控 */
 function fixture(capacity = 3) {
   let clock = 1_000_000;
-  const room = new Room('contract', { capacity, now: () => clock });
+  // 文档 23 L-1 夹具边界：2–3 人、满员自动开局、跳过准备检查
+  const room = new Room('contract', {
+    ...FIXTURE_ROOM_OPTIONS, capacity, now: () => clock, board: buildBoard(MAP_4P),
+  });
   const sockets: FakeSocket[] = [];
   for (const name of NAMES.slice(0, capacity)) {
     const s = new FakeSocket(name);

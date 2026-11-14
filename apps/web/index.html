@@ -242,6 +242,12 @@
     </div>
   </div>
 
+  <!-- F3 桌面最低视口提示：静态节点，由 panels.syncDesktopGate 按窗口尺寸切换 hidden。
+       不旋转整页、不强制全屏；手机竖屏不显示（历史 ULS 层归档，不作为桌面发布门槛）。 -->
+  <div class="desktop-gate hidden" id="desktop-gate" role="status">
+    请使用电脑并扩大窗口；最低支持 1280×720，推荐 1440×900。
+  </div>
+
   <!-- ULS 正立层：故意放在 #shell 之外，不参与 CSS 自转；桌面尺寸下隐藏 -->
   <div class="landscape-hud hidden" id="landscape-hud" role="status" aria-live="polite" aria-label="横屏显示状态">
     <svg class="lh-icon" viewBox="0 0 44 44" aria-hidden="true" focusable="false">

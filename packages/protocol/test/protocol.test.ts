@@ -39,7 +39,10 @@ describe('ClientMessage 编解码', () => {
 
 describe('ServerMessage 解码', () => {
   it('识别全部合法类型', () => {
-    for (const t of ['WELCOME', 'LOBBY', 'SETTINGS', 'STATE', 'OFFERS', 'REJECT', 'JOIN_FAILED', 'PONG']) {
+    for (const t of [
+      'WELCOME', 'LOBBY', 'LOBBY_CONFIG', 'SETTINGS', 'STATE', 'SETUP_TIMER',
+      'SETUP_AUTO_PLACED', 'OFFERS', 'REJECT', 'JOIN_FAILED', 'PONG',
+    ]) {
       expect(decodeServerMessage(JSON.stringify({ t }))?.t).toBe(t);
     }
   });

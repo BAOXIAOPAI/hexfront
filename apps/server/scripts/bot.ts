@@ -5,18 +5,22 @@
  * 所有候选位推导只是「提示」，最终合法性由引擎裁决，REJECT 时退避兜底。
  *
  * 用法（在 apps/server 下）：
- *   npx tsx scripts/bot.ts <ws url> [名字] [--host] [--fast]
+ *   npx tsx scripts/bot.ts <ws url> [名字] [--host] [--fast] [--players N]
  *
  * 例：
- *   # 陪你在已完成对局的线上房间打（你先进房，bot 后进）
- *   npx tsx scripts/bot.ts "wss://hexfront.app.workbuddy.host/ws?sharecode=XXX&room=abc" 机器人
- *
- *   # 两个 bot 自动对打（本机冒烟，--host 的那个负责开局）
- *   npx tsx scripts/bot.ts "ws://127.0.0.1:8787/ws?sharecode=DEV&room=botfight" 甲 --host
- *   npx tsx scripts/bot.ts "ws://127.0.0.1:8787/ws?sharecode=DEV&room=botfight" 乙
+ *   # 4 个 bot 自动对打（文档 23 v3 协议，全员 READY 后 --host 负责开始）
+ *   npx tsx scripts/bot.ts "ws://127.0.0.1:8787/ws?sharecode=DEV&room=botfight" 甲 --host --players 4
+ *   npx tsx scripts/bot.ts "ws://127.0.0.1:8787/ws?sharecode=DEV&room=botfight" 乙 --players 4
+ *   npx tsx scripts/bot.ts "ws://127.0.0.1:8787/ws?sharecode=DEV&room=botfight" 丙 --players 4
+ *   npx tsx scripts/bot.ts "ws://127.0.0.1:8787/ws?sharecode=DEV&room=botfight" 丁 --players 4
  *
  * 行为：自动摆位 → 轮到就掷骰 → 掷 7 弃牌/移强盗 → 资源够就建（城>村>路）→ 结束回合。
  * 默认每步随机延迟 0.7-1.6s 模拟思考；--fast 缩短到 0.15-0.4s（自动化冒烟用）。
+ *
+ * 文档 23 v3 适配：
+ * - JOIN 带 players（4–8），创建者设定房间人数；地图按人数推荐标准盘/扩展盘。
+ * - 几何按 WELCOME.map.rows 动态重建（随机地图与 30 格扩展盘不再是固定 19 格）。
+ * - 全员 READY 后由 --host 带 configVersion 发 START（取消满员自动开局）。
  */
 
 import WebSocket from 'ws';
@@ -25,6 +29,8 @@ import {
   RESOURCES,
   MAP_4P,
   buildBoard,
+  buildGeometry,
+  type Geometry,
   type PlayerView,
   type ResourceCount,
   type Resource,
@@ -32,7 +38,28 @@ import {
 
 type Msg = Record<string, unknown> & { t: string };
 
-const geo = buildBoard(MAP_4P).geo;
+/** 几何随地图变化：初始 19 格，收到 WELCOME/STATE 后按实际 rows 重建 */
+let geo: Geometry = buildBoard(MAP_4P).geo;
+
+/** 从地块 key 反推每行格数，再重建与引擎完全一致的几何 */
+function geoFromTileKeys(keys: readonly string[]): Geometry {
+  const counts = new Map<number, number>();
+  let maxRow = -1;
+  for (const k of keys) {
+    const m = /^(-?\d+),(-?\d+)$/.exec(k);
+    if (!m) return geo;
+    const row = Number(m[2]);
+    counts.set(row, (counts.get(row) ?? 0) + 1);
+    if (row > maxRow) maxRow = row;
+  }
+  const rows: number[] = [];
+  for (let r = 0; r <= maxRow; r++) {
+    const c = counts.get(r);
+    if (!c) return geo;
+    rows.push(c);
+  }
+  return buildGeometry(rows);
+}
 
 const rand = (min: number, max: number): number => min + Math.random() * (max - min);
 const pick = <T,>(arr: T[]): T | undefined => arr[Math.floor(Math.random() * arr.length)];
@@ -259,16 +286,24 @@ async function main(): Promise<void> {
   const name = args.find((a, i) => i > 0 && !a.startsWith('--')) ?? '机器人';
   const host = args.includes('--host');
   const fast = args.includes('--fast');
-  const thinkDelay = () => (fast ? rand(150, 400) : rand(700, 1600));
+  const turbo = args.includes('--turbo');
+  const playersArg = args.find((a) => a.startsWith('--players='));
+  const players = playersArg ? Math.max(4, Math.min(8, Number(playersArg.split('=')[1]) || 4)) : 4;
+  // --turbo：验收脚本用，去掉思考延迟以在有限时间内真正打到 10 分终局
+  const thinkDelay = () => (turbo ? 0 : fast ? rand(150, 400) : rand(700, 1600));
 
   if (!url) {
-    console.error('用法: npx tsx scripts/bot.ts <ws url> [名字] [--host] [--fast]');
+    console.error('用法: npx tsx scripts/bot.ts <ws url> [名字] [--host] [--fast] [--turbo] [--players N]');
     process.exit(1);
   }
 
   const client = new Client(url);
   await client.open();
-  client.send({ t: 'JOIN', roomId: roomIdFromUrl(url), name, v: PROTOCOL_VERSION });
+  // 文档 23 L-0 E：创建者（--host）在 JOIN 时设定人数上限 4–8
+  client.send({
+    t: 'JOIN', roomId: roomIdFromUrl(url), name, v: PROTOCOL_VERSION,
+    ...(host ? { players } : {}),
+  });
 
   const welcome = await client.next((m) => m.t === 'WELCOME' || m.t === 'JOIN_FAILED');
   if (welcome.t === 'JOIN_FAILED') {
@@ -276,16 +311,29 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const seat = welcome.seat as number;
-  console.log(`[bot] 「${name}」入座 ${seat}，等待开局…`);
+  // 动态几何：地图是服务端受约束随机生成的，可能是 19 格标准盘或 30 格扩展盘
+  const map = welcome.map as { rows?: number[]; tiles?: { key: string }[] } | null | undefined;
+  if (map?.rows) geo = buildGeometry(map.rows);
+  else if (map?.tiles) geo = geoFromTileKeys(map.tiles.map((t) => t.key));
+  console.log(`[bot] 「${name}」入座 ${seat}，地图 ${geo.tileKeys.length} 格，等待开局…`);
+
+  // 文档 23 L-1：全员准备后由房主手动开始，取消满员自动开局
+  client.send({ t: 'READY', ready: true });
 
   if (host) {
-    // LOBBY 在每次有人入座时广播；第一条往往是自己刚入座的 1 人房，循环等到 ≥2 人
+    // 等所有人都入座且准备完成（LOBBY_CONFIG 带 canStart / configVersion）
     for (;;) {
-      const lobby = await client.next((m) => m.t === 'LOBBY', 15000);
-      if ((lobby.players as unknown[]).length >= 2) break;
+      const cfg = await client.next(
+        (m) => m.t === 'LOBBY_CONFIG' || m.t === 'LOBBY',
+        30000,
+      );
+      const lobbyCfg = cfg.lobby as { canStart?: boolean; configVersion?: number; targetPlayers?: number } | undefined;
+      if (lobbyCfg?.canStart) {
+        client.send({ t: 'START', configVersion: lobbyCfg.configVersion });
+        console.log(`[bot] 全员准备（目标 ${lobbyCfg.targetPlayers} 人），已发 START v${lobbyCfg.configVersion}`);
+        break;
+      }
     }
-    client.send({ t: 'START' });
-    console.log('[bot] 2 人在座，已发 START');
   }
 
   let latest: PlayerView | null = null;
@@ -367,6 +415,33 @@ async function main(): Promise<void> {
       const hand = RESOURCES.map((r) => `${r}=${res[r]}`).join(' ');
       console.log(`[bot:debug] 回合 ${view.turn} 手牌: ${hand} | 候选 村${candidateVillages(view).length} 路${candidateRoads(view).length}`);
     }
+
+    // 文档 23 §3：验收脚本常「先花木砖修路、迟迟凑不齐村庄成本」，这是脚本策略问题，
+    // 不是资源发放 bug。这里补银行 4:1 兑换：把过剩资源换成当前最缺的关键资源，
+    // 让 bot 能稳定凑齐村庄/城市成本，真正把一局打到 10 分终局。
+    // 港口 2:1 由服务端按视图裁决，bot 不自行推断比例，统一走 4:1 银行。
+    const bankExchange = (): boolean => {
+      // 目标成本：优先城市（2 分），其次村庄（1 分 + 扩张）
+      const goals: Partial<ResourceCount>[] = [
+        { wood: 1, brick: 1, sheep: 1, wheat: 1 },  // 村庄优先（扩张）
+        { ore: 3, wheat: 2 },                        // 其次城市（2 分）
+      ];
+      for (const goal of goals) {
+        const missing = RESOURCES.filter((r) => (res[r] ?? 0) < (goal[r] ?? 0));
+        if (missing.length === 0) continue;
+        const want = missing[0]!;
+        // 找一种持有 ≥4 的资源做 4:1 兑换；不要求换出后仍满足目标，
+        // 因为下一轮还能继续攒（bot 每回合只做一个动作，天然限速）。
+        const spare = RESOURCES.find((r) => r !== want && (res[r] ?? 0) >= 4);
+        if (spare) {
+          command({ type: 'TRADE_BANK', give: spare, get: want });
+          say(`银行兑换 ${spare}×4 → ${want}`);
+          return true;
+        }
+      }
+      return false;
+    };
+
     if (canAfford(res, { ore: 3, wheat: 2 })) {
       const vk = candidateCity(view);
       if (vk) {
@@ -383,6 +458,13 @@ async function main(): Promise<void> {
         return;
       }
     }
+    // 凑不齐建筑成本时先尝试银行兑换（4:1），把过剩资源换成缺的关键资源。
+    // 放在铺路之前，避免「先花木砖修路、迟迟凑不齐村庄成本」的脚本策略缺陷
+    // （文档 23 §3 明确指出这不能判定为资源发放 bug）。
+    if (bankExchange()) return;
+
+    // 铺路扩张：为将来的村庄创造候选顶点。不加「当前已有村庄目标」的限制，
+    // 否则初始 2 条路用完后 candidateVillages 永远为空，对局会死锁。
     if (canAfford(res, { wood: 1, brick: 1 })) {
       const ek = pick(candidateRoads(view));
       if (ek) {
@@ -390,6 +472,13 @@ async function main(): Promise<void> {
         say(`铺路 @${short(ek)}`);
         return;
       }
+    }
+
+    // 发展卡：胜利点也是得分途径；牌堆非空且买得起就买
+    if (view.devDeckCount > 0 && canAfford(res, { sheep: 1, wheat: 1, ore: 1 })) {
+      command({ type: 'BUY_DEV_CARD' });
+      say('买发展卡');
+      return;
     }
 
     command({ type: 'END_TURN' });

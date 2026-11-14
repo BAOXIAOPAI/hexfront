@@ -134,7 +134,13 @@ export function discardCards(board: Board, state: GameState, cmd: DiscardCmd): A
   const next = structuredClone(state);
   const ending = next.current;
 
-  next.current = (next.current + 1) % next.players.length;
+  // 文档 23 L-4：正常回合沿 actionOrder 循环，而不是 current+1 取模。
+  // actionOrder 缺失时退化为座位自然顺序，保持老行为。
+  const order = next.actionOrder.length === next.players.length
+    ? next.actionOrder
+    : Array.from({ length: next.players.length }, (_, i) => i);
+  const pos = order.indexOf(ending);
+  next.current = order[(pos + 1) % order.length] ?? order[0] ?? 0;
   next.hasRolled = false;
   next.dice = null;
   next.turn += 1;

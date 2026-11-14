@@ -509,7 +509,10 @@ describe('18 §4.5 · enterkeyhint 与引导文案静态对账（真机仍 BLOCK
     // ui.ts 的 showJoin 会重建表单，属性必须在渲染模板里（uls-join-form.test.ts 验运行时）
     expect(uiSrc).toContain('enterkeyhint="next"');
     expect(uiSrc).toContain('enterkeyhint="go"');
-    expect(uiSrc).toContain('输完按键盘上的『前往』即可加入');
+    // 文档 23：旧的软键盘「『前往』」引导在有分享链接后已不准确，改为邀请链接引导
+    expect(uiSrc).toContain('邀请链接');
+    expect(uiSrc).toContain('btn-copy-invite');
+    expect(uiSrc).not.toContain('同一 WiFi');
     // index.html 里的静态表单若存在，也应带属性（或完全由 ui.ts 生成）
     const staticName = /id="f-name"[^>]*/.exec(html)?.[0] ?? '';
     if (staticName) expect(staticName).toContain('enterkeyhint');

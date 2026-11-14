@@ -11,6 +11,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
+import type { Board } from '@hexfront/engine';
 import { Room, RoomRegistry, normalizeRoomId } from './room.js';
 import { decodeClientMessage, encode, PROTOCOL_VERSION, type ServerMessage } from './protocol.js';
 
@@ -103,15 +104,44 @@ function serveFile(res: http.ServerResponse, file: string): void {
 export interface AppServerOptions {
   port?: number;
   host?: string;
-  /** 房间座位上限 */
+  /** 房间座位上限（初始目标人数，4–8） */
   capacity?: number;
   /** 心跳间隔，0 关闭（测试用） */
   heartbeatMs?: number;
+  /** 内部测试夹具：满员自动开局 / 降低最少人数 / 跳过准备检查 */
+  autoStartOnFull?: boolean;
+  minPlayers?: number;
+  skipReadyCheck?: boolean;
+  /** 内部测试夹具：注入固定棋盘（旧 WS 集成测试断言依赖 MAP_4P 几何） */
+  board?: Board;
 }
 
 interface Session {
   room: Room;
   seat: number;
+}
+
+/** F1：CREATE / JOIN 入座成功后共用同一份权威 WELCOME，避免两条路径漂移 */
+function sendWelcome(
+  reply: (msg: ServerMessage) => void,
+  room: Room, seat: number, view: import('@hexfront/engine').PlayerView | null,
+): void {
+  reply({
+    t: 'WELCOME',
+    roomId: room.id,
+    seat,
+    capacity: room.capacity,
+    players: room.lobbyPlayers(),
+    view,
+    // 恢复快照：只带未过期报价、列表版本、服务端时间与本人冷却
+    snapshot: room.snapshot(),
+    stateSeq: room.version,
+    // 文档 23：大厅/地图/计时权威快照，刷新与重连都不重置 deadline
+    lobby: room.started ? null : room.lobbyConfig(),
+    map: room.map,
+    timer: room.currentTimer,
+    settings: room.roomSettings,
+  });
 }
 
 export interface AppServer {
@@ -137,7 +167,13 @@ const HEALTH_PLACEHOLDER = `<!doctype html>
 <p>WebSocket 已就绪，等待前端构建产物</p></div></body></html>`;
 
 export function createAppServer(opts: AppServerOptions = {}): AppServer {
-  const registry = new RoomRegistry({ capacity: opts.capacity });
+  const registry = new RoomRegistry({
+    capacity: opts.capacity,
+    autoStartOnFull: opts.autoStartOnFull,
+    minPlayers: opts.minPlayers,
+    skipReadyCheck: opts.skipReadyCheck,
+    board: opts.board,
+  });
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
 
   const httpServer = http.createServer((req, res) => {
@@ -181,7 +217,8 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
   const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
   const sessions = new Map<WebSocket, Session>();
 
-  // 过期报价的清理广播：不依赖客户端恰好发一条消息，闲置房间也能同步「已过期」。
+  // 过期报价的清理广播 + 选地 180 秒计时推进 + 房主断线移交：
+  // 不依赖客户端恰好发一条消息，闲置房间也能同步「已过期」并准时触发系统代放。
   // 成交判定不依赖这个定时器（acceptOffer 每次都会用服务端时钟复查 expiresAt）。
   const purgeTimer = setInterval(() => {
     for (const room of registry.list()) room.purgeExpired();
@@ -226,6 +263,34 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
           reply({ t: 'PONG', id: msg.id });
           return;
 
+        // F1：CREATE 显式、原子创建；随后由同一条连接发 JOIN 入座并成为房主。
+        // 创建与登记在同一同步块内，两人并发同名 CREATE 只有一人成功。
+        case 'CREATE': {
+          if (msg.v !== PROTOCOL_VERSION) {
+            reply({ t: 'JOIN_FAILED', reason: 'PROTOCOL_MISMATCH' });
+            return;
+          }
+          const roomId = normalizeRoomId(msg.roomId) ?? 'main';
+          const made = registry.create(roomId, msg.players);
+          if (!made.ok) {
+            reply({ t: 'JOIN_FAILED', reason: made.reason });
+            return;
+          }
+          // 创建成功后立刻入座该连接；首位入座者由 Room.join 授予 hostSeat。
+          // 若这里入座失败（极端畸形名字等），把刚建的空房间撤掉，避免留下孤儿房间。
+          const result = made.room.join(msg.name, { send: (data) => ws.send(data) });
+          if (!result.ok) {
+            registry.delete(roomId);
+            reply({ t: 'JOIN_FAILED', reason: result.reason });
+            return;
+          }
+          sessions.set(ws, { room: made.room, seat: result.seat });
+          sendWelcome(reply, made.room, result.seat, result.view);
+          made.room.broadcastSettings();
+          made.room.sync();
+          return;
+        }
+
         case 'JOIN': {
           // 协议不兼容升级必须可识别：只递增常量而不校验等于没升级（指南 10.3）
           if (msg.v !== PROTOCOL_VERSION) {
@@ -233,9 +298,10 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
             return;
           }
           const roomId = normalizeRoomId(msg.roomId) ?? 'main';
-          const room = registry.getOrCreate(roomId);
+          // F1：JOIN 仅查找已存在房间，绝不隐式创建。
+          const room = registry.get(roomId);
           if (!room) {
-            reply({ t: 'JOIN_FAILED', reason: 'ROOM_LIMIT' });
+            reply({ t: 'JOIN_FAILED', reason: 'ROOM_NOT_FOUND' });
             return;
           }
           const result = room.join(msg.name, { send: (data) => ws.send(data) });
@@ -244,18 +310,8 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
             return;
           }
           sessions.set(ws, { room, seat: result.seat });
-          reply({
-            t: 'WELCOME',
-            roomId: room.id,
-            seat: result.seat,
-            capacity: room.capacity,
-            players: room.lobbyPlayers(),
-            view: result.view,
-            // 恢复快照：只带未过期报价、列表版本、服务端时间与本人冷却
-            snapshot: room.snapshot(),
-            stateSeq: room.version,
-          });
-          // 房间设置是权威值：新入座/重连/满员自动开局都要同步一次
+          sendWelcome(reply, room, result.seat, result.view);
+          // 房间设置是权威值：新入座/重连都要同步一次
           room.broadcastSettings();
           room.sync();
           return;
@@ -267,9 +323,66 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
             reply({ t: 'REJECT', reason: 'NOT_SEATED' });
             return;
           }
-          // 开局后 setSettings 会拒绝；无论如何都把权威值回推，纠正客户端显示
-          session.room.setSettings({ setupGrant: msg.setupGrant });
+          // 只有房主能改房间级设置；开局后 setSettings 会拒绝。
+          // 无论如何都把权威值回推，纠正客户端显示。
+          const changed = session.room.setSettings({ setupGrant: msg.setupGrant }, session.seat);
+          if (!changed) reply({ t: 'REJECT', reason: 'NOT_HOST' });
           session.room.broadcastSettings();
+          return;
+        }
+
+        // -------------------------------------------------------------------
+        // 文档 23 L-1/L-2/L-4：房主配置、准备、排序、地图、手动开始
+        // 服务端一律再次校验权限与 configVersion；前端禁用按钮只是呈现。
+        // -------------------------------------------------------------------
+        // F2：人数与手动选图是两条独立消息，绝不一起提交。
+        case 'SET_PLAYER_COUNT': {
+          const session = sessions.get(ws);
+          if (!session) { reply({ t: 'REJECT', reason: 'NOT_SEATED' }); return; }
+          const out = session.room.applyPlayerCount(session.seat, msg.targetPlayers, msg.configVersion);
+          if (!out.ok) reply({ t: 'REJECT', reason: out.reason });
+          session.room.sync();
+          return;
+        }
+
+        case 'SET_BOARD': {
+          const session = sessions.get(ws);
+          if (!session) { reply({ t: 'REJECT', reason: 'NOT_SEATED' }); return; }
+          const out = session.room.applyBoard(session.seat, msg.board, msg.configVersion);
+          if (!out.ok) reply({ t: 'REJECT', reason: out.reason });
+          session.room.sync();
+          return;
+        }
+
+        case 'REROLL_MAP': {
+          const session = sessions.get(ws);
+          if (!session) { reply({ t: 'REJECT', reason: 'NOT_SEATED' }); return; }
+          const out = session.room.rerollMap(session.seat, msg.configVersion);
+          if (!out.ok) reply({ t: 'REJECT', reason: out.reason });
+          return;
+        }
+
+        case 'READY': {
+          const session = sessions.get(ws);
+          if (!session) { reply({ t: 'REJECT', reason: 'NOT_SEATED' }); return; }
+          const out = session.room.setReady(session.seat, msg.ready);
+          if (!out.ok) reply({ t: 'REJECT', reason: out.reason });
+          return;
+        }
+
+        case 'SET_ORDER': {
+          const session = sessions.get(ws);
+          if (!session) { reply({ t: 'REJECT', reason: 'NOT_SEATED' }); return; }
+          const out = session.room.setOrder(session.seat, msg.order, msg.configVersion);
+          if (!out.ok) reply({ t: 'REJECT', reason: out.reason });
+          return;
+        }
+
+        case 'RANDOMIZE_ORDER': {
+          const session = sessions.get(ws);
+          if (!session) { reply({ t: 'REJECT', reason: 'NOT_SEATED' }); return; }
+          const out = session.room.randomizeOrder(session.seat, msg.configVersion);
+          if (!out.ok) reply({ t: 'REJECT', reason: out.reason });
           return;
         }
 
@@ -320,9 +433,14 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
             reply({ t: 'REJECT', reason: 'NOT_SEATED' });
             return;
           }
-          const started = session.room.start();
+          // 文档 23：必须房主、满目标人数、全员在线准备、配置版本一致。
+          // 原子锁定名单/地图/设置/顺序由 Room.start 一次完成。
+          const started = session.room.start(session.seat, msg.configVersion);
           if (!started.ok) {
-            reply({ t: 'REJECT', reason: started.reason === 'ALREADY_STARTED' ? 'WRONG_PHASE' : 'NOT_YOUR_TURN' });
+            const reason = started.reason === 'ALREADY_STARTED'
+              ? 'GAME_ALREADY_STARTED'
+              : (started.reason === 'NEED_MORE_PLAYERS' ? 'NOT_ENOUGH_PLAYERS' : started.reason);
+            reply({ t: 'REJECT', reason });
             return;
           }
           session.room.sync();
@@ -350,6 +468,8 @@ export function createAppServer(opts: AppServerOptions = {}): AppServer {
       if (!session) return;
       sessions.delete(ws);
       session.room.leave(session.seat);
+      // 断线不暂停选地计时；主动离房时立即推进房主移交检查
+      session.room.advanceClock();
       session.room.sync();
     });
 

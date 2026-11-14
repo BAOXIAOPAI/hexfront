@@ -437,12 +437,13 @@ describe('ULS · S0–S8 状态机（真实 Panels + 真实 click / 方向事件
     orientationChange();
     expect(mode()).toBe('off');
     expect(hud().classList.contains('hidden')).toBe(true);
-    // 桌面 / 大横屏：视口真是横屏 → system，无需自转
+    // F3（文档 24 §5）：桌面尺寸 1366×768 ≥1280×720 走「桌面专用流程」，
+    // 一律 off（不整页自转、不方向锁、不弹转向提示）；旧的 'system' 手机专项断言已归档。
     setOrientation(false);
     g['innerWidth'] = 1366; g['innerHeight'] = 768;
     orientationChange();
-    expect(mode()).toBe('system');
-    // 小横屏 667×375（旧 900px 断点会误判）同样是 system
+    expect(mode()).toBe('off');
+    // 小横屏 667×375 仍属归档的 ULS 范围（<1280），保持历史 system 判据
     g['innerWidth'] = 667; g['innerHeight'] = 375;
     orientationChange();
     expect(mode()).toBe('system');

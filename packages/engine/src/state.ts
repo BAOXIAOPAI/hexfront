@@ -84,6 +84,12 @@ export interface GameState {
   pendingRobber: boolean;
   /** 房间级规则：第二轮摆位时是否发相邻地块的起始资源。默认开启 */
   setupGrant: boolean;
+  /**
+   * 文档 23 L-4：开局前房主确认的行动顺序，数组元素是稳定的 seat。
+   * 选地 = actionOrder + reverse(actionOrder)；正常回合沿此顺序循环。
+   * 不传时退化为 [0,1,...,n-1]，老调用方零改动。
+   */
+  actionOrder: number[];
 }
 
 export interface Board {
@@ -140,13 +146,34 @@ export function buildBoard(spec: MapSpec): Board {
   return { spec, geo: buildGeometry(spec.rows) };
 }
 
-/** setupGrant 由房间设置传入；不传时保持官方开局发牌行为，老调用方零改动 */
+export interface CreateGameOptions {
+  /** 第二轮摆位时是否发相邻地块的起始资源，默认开启 */
+  setupGrant?: boolean;
+  /**
+   * 行动顺序（seat 的排列）。不传时按座位自然顺序。
+   * 必须是不重不漏的 0..n-1 排列，否则抛错（避免静默串座）。
+   */
+  actionOrder?: number[];
+}
+
+/**
+ * 开局创建。老调用方 `createGame(board, names, colors, setupGrant)` 零改动：
+ * 第 4 参数仍可为 boolean，等价于 `{ setupGrant }`。
+ */
 export function createGame(
   board: Board,
   playerNames: string[],
   colors: PlayerColor[],
-  setupGrant = true,
+  setupGrantOrOptions: boolean | CreateGameOptions = true,
 ): GameState {
+  const opts: CreateGameOptions = typeof setupGrantOrOptions === 'boolean'
+    ? { setupGrant: setupGrantOrOptions }
+    : setupGrantOrOptions;
+  const setupGrant = opts.setupGrant ?? true;
+  const n = playerNames.length;
+  const actionOrder = opts.actionOrder
+    ? validateActionOrder(opts.actionOrder, n)
+    : Array.from({ length: n }, (_, i) => i);
   const { geo, spec } = board;
 
   const tiles: Record<string, TileState> = {};
@@ -157,14 +184,19 @@ export function createGame(
   }
 
   const desert = geo.tileKeys.find((tk) => tiles[tk]!.terrain === 'desert');
+  // 生成器/快照可指定港口与强盗起点（文档 23 L-2/L-0 B）；不指定则沿用默认推导。
+  // 强盗起点必须来自当前地图的沙漠，否则回退，绝不落到生产地块上。
+  const specifiedRobber = spec.robberTile && tiles[spec.robberTile]?.terrain === 'desert'
+    ? spec.robberTile
+    : undefined;
 
   return {
     mapId: spec.id,
     tiles,
-    ports: computePorts(geo),
+    ports: spec.ports ? spec.ports.map((p) => ({ ...p, port: { ...p.port } })) : computePorts(geo),
     buildings: {},
     roads: {},
-    robberTile: desert ?? geo.tileKeys[0]!,
+    robberTile: specifiedRobber ?? desert ?? geo.tileKeys[0]!,
 
     players: playerNames.map((name, i) => ({
       index: i,
@@ -175,20 +207,35 @@ export function createGame(
       playedKnights: 0,
       devPlayedThisTurn: false,
     })),
-    current: 0,
+    current: actionOrder[0] ?? 0,
     phase: 'setup',
     hasRolled: false,
     dice: null,
     devDeck: shuffle(makeDevDeck()),
     turn: 1,
-    setup: { step: 0, seat: 0 },
+    // 选地第一步由 actionOrder 的第一人开始（文档 23 L-4）
+    setup: { step: 0, seat: actionOrder[0] ?? 0 },
     winner: null,
     longestRoad: null,
     largestArmy: null,
     pendingDiscards: {},
     pendingRobber: false,
     setupGrant,
+    actionOrder: actionOrder.slice(),
   };
+}
+
+/** 校验行动顺序是 0..n-1 的一个排列；非法直接抛错，不静默降级 */
+function validateActionOrder(order: number[], n: number): number[] {
+  if (order.length !== n) throw new Error('actionOrder 长度与玩家数不符');
+  const seen = new Set<number>();
+  for (const seat of order) {
+    if (!Number.isInteger(seat) || seat < 0 || seat >= n || seen.has(seat)) {
+      throw new Error('actionOrder 必须是 0..n-1 的不重复排列');
+    }
+    seen.add(seat);
+  }
+  return order.slice();
 }
 
 export function shuffle<T>(input: T[]): T[] {
@@ -213,9 +260,14 @@ export function makeDevDeck(): DevCard[] {
   return deck;
 }
 
-/** 开局蛇形放置顺序：0,1,2,3,3,2,1,0 */
-export function setupSeatOrder(playerCount: number): number[] {
-  const forward = Array.from({ length: playerCount }, (_, i) => i);
+/**
+ * 开局蛇形放置顺序：默认 0,1,2,3,3,2,1,0。
+ * 传入 actionOrder 时按其排列生成（文档 23 L-4：正序 + 逆序，末位连续两次）。
+ */
+export function setupSeatOrder(playerCount: number, actionOrder?: readonly number[]): number[] {
+  const forward = actionOrder
+    ? Array.from(actionOrder)
+    : Array.from({ length: playerCount }, (_, i) => i);
   return [...forward, ...forward.slice().reverse()];
 }
 

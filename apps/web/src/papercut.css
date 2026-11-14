@@ -593,3 +593,27 @@ body[data-theme="papercut"] .tile.prod .prod-fill { animation: pc-prod 1.9s ease
     box-shadow: var(--pc-shadow-sm); pointer-events: none;
   }
 }
+
+/* F3（文档 24 §5）：桌面最低 1280×720 门槛提示。
+   只在 JS 判定「窗口过小且不是手机」时显示；不旋转整页、不强制全屏。
+   与上方 @media(max-width:1179px) 的纯 CSS 兜底互补：这里按宽或高任一不足判定。 */
+.desktop-gate {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+  z-index: 210; padding: 8px 16px; border-radius: 999px;
+  background: var(--pc-edge, #2a4036); color: var(--pc-paper, #fff6e2);
+  font-size: 12px; font-weight: 600; box-shadow: var(--pc-shadow-sm, 0 2px 8px rgba(0,0,0,.2));
+  pointer-events: none;
+}
+.desktop-gate.hidden { display: none; }
+
+/* F6（文档 24 §8）：两步交易草稿在 1440×900 / 1280×720 内尽量一屏读完。
+   只压缩行高与说明间距，不改字号可读性下限（数量与摘要仍 ≥13px）。 */
+body[data-theme="papercut"] .offer-side h4 { margin: 6px 0 2px; font-size: 15px; }
+body[data-theme="papercut"] .offer-side > p { margin: 2px 0 6px; font-size: 12px; line-height: 1.35; }
+body[data-theme="papercut"] .offer-row { margin: 1px 0; gap: 5px; }
+body[data-theme="papercut"] .offer-row .d-chip { min-height: 26px; height: 26px; padding: 0 7px; }
+body[data-theme="papercut"] .offer-range { width: 108px; }
+body[data-theme="papercut"] .offer-qty { font-size: 13px; font-weight: 700; }
+body[data-theme="papercut"] .offer-steps { display: flex; gap: 6px; margin: 4px 0 2px; }
+body[data-theme="papercut"] .offer-steps .d-chip { min-height: 28px; }
+body[data-theme="papercut"] #extra-panel .d-note { font-size: 12px; line-height: 1.35; margin: 3px 0; }
