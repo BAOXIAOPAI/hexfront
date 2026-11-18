@@ -1,0 +1,72 @@
+/* Both action menus share a 120 degree fan and clear the entire trigger row. */
+.table-radial-actions .table-radial-menu {
+  --fan-radius: 112px;
+  --fan-option-width: 56px;
+  --fan-option-height: 60px;
+  width: 270px;
+  height: 150px;
+  left: calc(50% + var(--floating-menu-x, 0px));
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  animation: action-fan-reveal .2s ease-out;
+}
+.table-radial-actions .table-radial-menu .table-radial-option {
+  left: calc(50% + var(--fan-x) * var(--fan-radius) - var(--fan-option-width) / 2);
+  right: auto;
+  top: auto;
+  bottom: calc(var(--fan-y) * var(--fan-radius) - var(--fan-option-height) / 2);
+  width: var(--fan-option-width);
+  height: var(--fan-option-height);
+}
+.table-radial-actions .table-radial-orbit {
+  inset: auto auto 7px 50%;
+  width: 250px;
+  height: 135px;
+  border-radius: 140px 140px 18px 18px;
+  clip-path: none;
+  background: radial-gradient(ellipse at 50% 100%, transparent 27%, #15383b66 66%, #294b4540);
+}
+.table-radial-cluster:has(.table-radial-menu) { z-index: 4; }
+.action-panel .table-radial-cluster { position: static; }
+.action-panel .table-radial-menu {
+  left: auto;
+  right: 0;
+  transform: none !important;
+}
+.floating-toolbar .table-radial-actions .table-radial-menu {
+  bottom: calc(100% + 28px);
+}
+.floating-toolbar .table-radial-menu[data-fan-below="true"] {
+  top: calc(100% + 18px);
+  bottom: auto;
+}
+@keyframes action-fan-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-radial-actions .table-radial-menu { animation: none; }
+}
+.floating-toolbar .table-radial-menu[data-fan-below="true"] .table-radial-option {
+  top: calc(var(--fan-y) * var(--fan-radius) - var(--fan-option-height) / 2);
+  bottom: auto;
+}
+.floating-toolbar .table-radial-menu[data-fan-below="true"] .table-radial-orbit {
+  top: 7px;
+  bottom: auto;
+  border-radius: 18px 18px 140px 140px;
+  background: radial-gradient(ellipse at 50% 0%, transparent 27%, #15383b66 66%, #294b4540);
+}
+@media (max-width: 560px) {
+  .table-radial-actions .table-radial-menu {
+    --fan-radius: 100px;
+    --fan-option-width: 48px;
+    --fan-option-height: 52px;
+    width: 234px;
+    height: 132px;
+  }
+  .table-radial-actions .table-radial-orbit {
+    width: 220px;
+    height: 120px;
+  }
+}
