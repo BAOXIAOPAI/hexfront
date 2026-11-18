@@ -1,0 +1,71 @@
+.rule-voting {
+  border-top: 1px solid #78968a55;
+  margin: 21px 0 12px;
+}
+.rule-voting h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #f0d5a1;
+}
+.rule-voting p.rule-voting-note { margin: 8px 0; color: #b4cbc2; }
+.rule-voting-current {
+  display: flex;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 6px;
+  background: #112c35;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.rule-voting-current b { flex: none; color: #e4cd99; }
+.rule-voting-seat small { display: block; margin-top: 7px; color: #a5bdb5; }
+.rule-voting .rule-option small { color: #b0c2bb; font-size: 10px; }
+.rule-voting .gold-button { margin-top: 12px; }
+.rule-voting-ballot {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #b9a17178;
+  border-radius: 8px;
+  background: #c9a66c0b;
+}
+.rule-voting-heading,
+.rule-voting-changes li,
+.rule-voting-voters li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+.rule-voting-heading { font-size: 13px; color: #f0d6a5; }
+.rule-voting-heading span, .rule-voting-changes b, .rule-voting-voters b { flex: none; }
+.rule-voting-changes, .rule-voting-voters {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 12px 0;
+  list-style: none;
+  font-size: 12px;
+}
+.rule-voting-changes b { color: #ead7ae; font-size: 11px; }
+.rule-voting-voters { border-top: 1px solid #78968a55; padding-top: 10px; color: #b5c8c0; }
+.rule-voting-voters b { font-size: 11px; }
+.rule-voting-actions { display: flex; gap: 8px; }
+.rule-voting-actions button { flex: 1; min-height: 36px; }
+.rule-voting-withdraw { display: inline-flex; align-items: center; gap: 6px; color: #dbc18f; margin-top: 12px; font-size: 11px; }
+.modal p.rule-voting-result { color: #f2dbac; margin: 12px 0; }
+.settings-vote-dot { position: relative; }
+.settings-vote-dot::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: #f0cb87;
+  border: 1px solid #18363a;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}

@@ -1,0 +1,47 @@
+.minimal-floating-actions.floating-toolbar {
+  width: max-content;
+  max-width: calc(100% - 16px);
+  padding-top: 19px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  animation: none;
+}
+.minimal-floating-actions[hidden] { display: none; }
+.floating-toolbar .floating-actions-grip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0 0 3px;
+  border: 1px solid #a9b08555;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: #15383de8;
+  color: #b6ba92;
+  cursor: grab;
+  touch-action: none;
+}
+.floating-toolbar .floating-actions-grip:hover,
+.floating-toolbar .floating-actions-grip:focus-visible {
+  color: #eed39a;
+  border-color: #d4bd7fbb;
+  outline: 1px solid #d4bd7f66;
+  outline-offset: 2px;
+}
+.minimal-floating-actions.floating-toolbar .table-radial-menu {
+  left: calc(50% + var(--floating-menu-x, 0px));
+  margin-bottom: var(--floating-menu-up, 0px);
+  cursor: default;
+}
+.floating-toolbar.floating-actions-dragging,
+.floating-actions-dragging .floating-actions-grip,
+.floating-actions-dragging .table-radial-trigger { cursor: grabbing; }
+.floating-actions-dragging .table-radial-actions {
+  box-shadow: 0 10px 30px #001b2977, 0 0 0 1px #d8c28a66;
+}
+.floating-actions-dragging .table-radial-menu { visibility: hidden; }
